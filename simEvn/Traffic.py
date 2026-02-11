@@ -4,6 +4,18 @@ import random
 import time
 import torch
 from torch_geometric.data import Data
+import cvxpy as cp
+import sys
+import os
+
+# 1. 获取当前文件 (Traffic.py) 的目录路径 -> .../simEvn
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 2. 获取这个目录的父目录 (项目根目录) -> .../YourProjectRoot
+project_root = os.path.dirname(current_dir)
+# 3. 把项目根目录加入到 Python 的搜索路径中
+sys.path.append(project_root)
+
+from model.GraphQNetwork import GraphQNetwork
 
 
 # ==========================================
@@ -14,10 +26,17 @@ class EV:
         self.id = ev_id
         self.curr_node = start_node
         self.target_station_idx = None
-        # 让初始电量随机一点，模拟真实的参差不齐
         self.soc = random.uniform(20.0, 50.0)
         self.status = "IDLE"
         self.path = []
+
+        # --- 评估指标统计 ---
+        self.travel_steps = 0          # 行驶步数 (MOVING_TO_CHARGE 状态)
+        self.wait_steps = 0            # 排队等待步数 (WAITING 状态)
+        self.charge_steps = 0          # 充电步数 (CHARGING 状态)
+        self.total_fee_paid = 0.0      # 累计支付的充电费用 (CNY)
+        self.total_energy_charged = 0.0 # 累计充入电量 (kWh，简化: 1步的kW=kWh)
+        self.charge_sessions = 0       # 完成的充电次数
 
     def move(self):
         if self.status == "MOVING_TO_CHARGE" and self.path:
@@ -27,47 +46,247 @@ class EV:
 
 
 # ==========================================
-# 2. 充电站实体 (Infrastructure)
+# 1.5 分时电价 (Time-of-Use Tariff)
+# ==========================================
+def get_tou_multiplier(time_step, steps_per_day=24):
+    """
+    根据时间步返回电价系数 (模拟峰谷电价)
+
+    典型分时方案:
+      谷时 (Valley): 23:00-07:00  →  系数 0.5  (鼓励夜间充电)
+      平时 (Flat):   07:00-10:00, 15:00-18:00  →  系数 1.0
+      峰时 (Peak):   10:00-15:00, 18:00-23:00  →  系数 1.5
+    """
+    hour = time_step % steps_per_day
+    if hour >= 23 or hour < 7:                # 谷时
+        return 0.5
+    elif 10 <= hour < 15 or 18 <= hour < 23:  # 峰时
+        return 1.5
+    else:                                     # 平时
+        return 1.0
+
+
+# ==========================================
+# 1.6 简化配电网模型 (Simplified Radial Distribution Network)
+# ==========================================
+class PowerGrid:
+    """
+    简化的辐射状配电网，计算电压降落和线路损耗。
+
+    拓扑 (单馈线, 400V 低压):
+        变电站 (1.0 pu)
+          ├── 线路A (R=0.08Ω) ──→ 母线A (Grid_A, Station 0)
+          └── 线路B (R=0.12Ω) ──→ 母线B (Grid_B, Station 1)
+
+    物理公式 (线性化 DistFlow):
+        电压降落: ΔV_pu ≈ P_kW · R / (V_nom_kV² · 1000)
+        线路损耗: P_loss ≈ P_kW² · R / (V_nom_kV² · 1e6)  [kW]
+    """
+
+    def __init__(self):
+        self.v_nominal_kv = 0.4              # 400V 低压配电
+
+        # 线路阻抗 (从变压器到各站点的电缆)
+        self.lines = {
+            'Grid_A': {'r_ohm': 0.08},       # 距离近, 阻抗小
+            'Grid_B': {'r_ohm': 0.12},       # 距离远, 阻抗大
+        }
+
+        # 电压安全限值 (国标 ±5%)
+        self.v_min = 0.95
+        self.v_max = 1.05
+
+        # 上一步状态
+        self.bus_voltages = {bus: 1.0 for bus in self.lines}
+        self.line_losses  = {bus: 0.0 for bus in self.lines}
+        self.total_loss = 0.0
+        self.voltage_violations = []         # [(bus, v_pu), ...]
+
+    def run_power_flow(self, loads):
+        """
+        简化潮流计算。
+
+        Args:
+            loads: {'Grid_A': P_kW, 'Grid_B': P_kW}
+        Returns:
+            bus_voltages: {'Grid_A': v_pu, 'Grid_B': v_pu}
+        """
+        v2 = self.v_nominal_kv ** 2          # kV²
+        self.voltage_violations = []
+        self.total_loss = 0.0
+
+        for bus, line in self.lines.items():
+            p = loads.get(bus, 0.0)
+            r = line['r_ohm']
+
+            # 电压降落 (pu)
+            delta_v = p * r / (v2 * 1000)
+            v_pu = 1.0 - delta_v
+
+            # 线路损耗 (kW)
+            loss = (p ** 2) * r / (v2 * 1e6)
+
+            self.bus_voltages[bus] = round(v_pu, 4)
+            self.line_losses[bus]  = round(loss, 4)
+            self.total_loss += loss
+
+            if v_pu < self.v_min or v_pu > self.v_max:
+                self.voltage_violations.append((bus, v_pu))
+
+        return self.bus_voltages
+
+
+# ==========================================
+# 2. 充电站实体 — 凸优化调度中心 + 电网感知
 # ==========================================
 class ChargingStation:
-    def __init__(self, station_id, traffic_node_id, power_node_id):
+    def __init__(self, station_id, traffic_node_id, power_node_id,
+                 num_chargers=3, max_charger_power=20.0, max_grid_power=50.0):
         self.id = station_id
         self.traffic_node_id = traffic_node_id
         self.power_node_id = power_node_id
-        self.queue = []
-        self.charging_vehicle = None
-        self.charging_power = 10.0
+
+        # --- 阶段二新增属性 ---
+        self.num_chargers = num_chargers          # 充电桩数量
+        self.max_charger_power = max_charger_power  # 单桩最大功率 (kW)
+        self.max_grid_power = max_grid_power        # 变压器配额 (kW)
+
+        self.queue = []                   # 排队等候的车（还没插枪）
+        self.connected_evs = []           # 已插枪、正在充电的车
+
         self.base_price = 1.0
         self.current_price = 1.0
 
-    def update_price(self):
-        """根据排队长度动态调整价格"""
-        # 排队越长，价格越高 (拥堵费)
-        congestion_surcharge = len(self.queue) * 0.5
-        self.current_price = self.base_price + congestion_surcharge
+        # 上一步的优化结果，供外部读取
+        self.last_power_allocation = {}   # {ev_id: power_kW}
+        self.last_total_load = 0.0        # 站级总负荷
+
+    def update_price(self, tou_multiplier=1.0):
+        """
+        动态电价 = 基础电价 × 分时系数 + 拥堵附加费
+        同时考虑: 峰谷电价 + 站内拥堵
+        """
+        congestion = len(self.queue) + len(self.connected_evs)
+        self.current_price = self.base_price * tou_multiplier + congestion * 0.5
         return self.current_price
 
-    def step(self):
-        current_load = 0.0
-        # 1. 充电逻辑
-        if self.charging_vehicle:
-            self.charging_vehicle.soc += 5.0
-            current_load = self.charging_power
-            if self.charging_vehicle.soc >= 90.0:
-                self.charging_vehicle.status = "IDLE"
-                self.charging_vehicle = None
-                current_load = 0.0
+    # --------------------------------------------------
+    # 核心方法: 凸优化功率分配
+    # --------------------------------------------------
+    def optimize_power(self):
+        """
+        用 CVXPY 求解：在电网容量约束下，最大化总充电功率并兼顾公平。
 
-        # 2. 队列调度
-        if self.charging_vehicle is None and self.queue:
-            next_ev = self.queue.pop(0)
-            self.charging_vehicle = next_ev
-            next_ev.status = "CHARGING"
+        数学模型:
+            max  Σ P_i  -  λ · Σ (P_i - P_avg)^2   (最大化 + 公平正则)
 
-        # 3. 更新当前时刻的动态电价 <--- 修改：每一步都更新价格
-        self.update_price()
+            s.t. Σ P_i  ≤  max_grid_power            (变压器安全)
+                 0 ≤ P_i ≤ max_charger_power          (充电桩物理限制)
+                 P_i · Δt ≤ (100 - SOC_i) · capacity  (电池保护, 简化)
+        """
+        n = len(self.connected_evs)
+        if n == 0:
+            self.last_power_allocation = {}
+            self.last_total_load = 0.0
+            return {}
 
-        return current_load
+        # --- 建立 CVXPY 变量 ---
+        P = cp.Variable(n, nonneg=True)
+
+        # --- 每辆车的上界 ---
+        upper_bounds = []
+        for ev in self.connected_evs:
+            remaining_capacity = max(0.0, 100.0 - ev.soc)   # 还能充多少 SOC%
+            # 简化: 1 kW·step ≈ 5 SOC%，则 SOC 上界对应的最大功率
+            max_by_battery = remaining_capacity / 5.0 * self.max_charger_power
+            ub = min(self.max_charger_power, max_by_battery)
+            upper_bounds.append(ub)
+        upper_bounds = np.array(upper_bounds, dtype=float)
+
+        # --- 目标函数 ---
+        # 最大化总功率 + 公平正则 (λ = 0.1)
+        fairness_lambda = 0.1
+        avg_power = cp.sum(P) / n
+        objective = cp.Maximize(
+            cp.sum(P) - fairness_lambda * cp.sum_squares(P - avg_power)
+        )
+
+        # --- 约束 ---
+        constraints = [
+            cp.sum(P) <= self.max_grid_power,        # 变压器容量
+            P <= upper_bounds,                        # 单桩+电池上界
+        ]
+
+        # --- 求解 ---
+        prob = cp.Problem(objective, constraints)
+        try:
+            prob.solve(solver=cp.OSQP, warm_start=True, verbose=False)
+        except cp.SolverError:
+            prob.solve(solver=cp.SCS, verbose=False)
+
+        # --- 读取结果 ---
+        allocation = {}
+        if P.value is not None:
+            for i, ev in enumerate(self.connected_evs):
+                allocated = max(0.0, float(P.value[i]))
+                allocation[ev.id] = allocated
+        else:
+            # 求解失败 → 均分
+            fair_share = self.max_grid_power / n
+            for ev in self.connected_evs:
+                allocation[ev.id] = min(fair_share, self.max_charger_power)
+
+        self.last_power_allocation = allocation
+        self.last_total_load = sum(allocation.values())
+        return allocation
+
+    # --------------------------------------------------
+    # 每一步的调度逻辑 (替换旧的固定 +5.0 逻辑)
+    # --------------------------------------------------
+    def step(self, tou_multiplier=1.0):
+        """
+        新逻辑:
+          1. 把排队的车填入空余充电桩 (插枪)
+          2. 调用 optimize_power() 做功率分配
+          3. 按分配的功率更新每辆车的 SOC
+          4. 充满的车自动离桩
+          5. 更新电价
+        """
+        realized_power = 0.0
+
+        # 1. 排队 → 插枪 (填满充电桩)
+        while self.queue and len(self.connected_evs) < self.num_chargers:
+            ev = self.queue.pop(0)
+            ev.status = "CHARGING"
+            self.connected_evs.append(ev)
+
+        # 2. 凸优化分配功率
+        allocation = self.optimize_power()
+
+        # 3. 按功率更新 SOC，充满离桩，记录费用
+        finished = []
+        for ev in self.connected_evs:
+            power = allocation.get(ev.id, 0.0)
+            soc_increment = (power / max(1e-6, self.max_charger_power)) * 5.0
+            ev.soc = min(100.0, ev.soc + soc_increment)
+            realized_power += power
+
+            # 记录充电费用: 功率(kWh) × 当前电价(CNY/kWh)
+            ev.total_fee_paid += power * self.current_price / max(1e-6, self.max_charger_power)
+            ev.total_energy_charged += power
+
+            if ev.soc >= 95.0:
+                ev.status = "IDLE"
+                ev.charge_sessions += 1
+                finished.append(ev)
+
+        for ev in finished:
+            self.connected_evs.remove(ev)
+
+        # 4. 更新动态电价 (含分时电价)
+        self.update_price(tou_multiplier)
+
+        return realized_power
 
 
 # ==========================================
@@ -90,9 +309,14 @@ class TrafficPowerEnv:
 
         self.power_limit = 15.0
         self.time_step = 0
+        self.steps_per_day = 24               # 每天 24 步 (1步 = 1小时)
+
+        # 电网物理模型
+        self.power_grid = PowerGrid()
+        self.tou_multiplier = 1.0             # 当前分时电价系数
 
         # 预先构建图结构
-        self.edge_index = self._build_edge_index()  # <--- 修改：初始化时构建
+        self.edge_index = self._build_edge_index()
 
     def _build_edge_index(self):
         adj = nx.to_scipy_sparse_array(self.traffic_graph).tocoo()
@@ -103,19 +327,28 @@ class TrafficPowerEnv:
     def get_graph_state(self):
         """返回 PyG 的 Data 对象"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=4: [车辆数, 是否充电站, 排队数, 当前电价]
-        x = torch.zeros((num_nodes, 4), dtype=torch.float)
+        # 特征维度=8:
+        #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
+        #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
+        x = torch.zeros((num_nodes, 8), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
             x[ev.curr_node, 0] += 1.0
 
-        # Feature 1, 2, 3: 充电站信息
+        # Feature 7: 分时电价系数 — 全局信号，所有节点共享
+        x[:, 7] = self.tou_multiplier
+
+        # Feature 1-6: 充电站特有信息
         for station in self.stations:
             node_idx = station.traffic_node_id
-            x[node_idx, 1] = 1.0  # 是充电站
-            x[node_idx, 2] = len(station.queue)  # 排队长度
-            x[node_idx, 3] = station.current_price  # <--- 修改：放入动态电价特征
+            x[node_idx, 1] = 1.0                       # 是充电站
+            x[node_idx, 2] = len(station.queue)         # 排队长度
+            x[node_idx, 3] = station.current_price      # 动态电价 (含TOU+拥堵)
+            x[node_idx, 4] = len(station.connected_evs) # 在桩车辆数
+            x[node_idx, 5] = station.last_total_load / max(1.0, station.max_grid_power)
+            x[node_idx, 6] = self.power_grid.bus_voltages.get(
+                station.power_node_id, 1.0)             # 母线电压
 
         data = Data(x=x, edge_index=self.edge_index)
         return data
@@ -146,35 +379,97 @@ class TrafficPowerEnv:
                         pass
 
             elif ev.status == "MOVING_TO_CHARGE":
+                ev.travel_steps += 1
                 ev.move()
                 target_station = self.stations[ev.target_station_idx]
                 if not ev.path and ev.curr_node == target_station.traffic_node_id:
                     target_station.queue.append(ev)
                     ev.status = "WAITING"
 
-        # --- 2. 基础设施更新 ---
+            elif ev.status == "WAITING":
+                ev.wait_steps += 1
+
+            elif ev.status == "CHARGING":
+                ev.charge_steps += 1
+
+        # --- 2. 分时电价 ---
+        self.tou_multiplier = get_tou_multiplier(self.time_step, self.steps_per_day)
+
+        # --- 3. 基础设施更新 (凸优化调度) ---
+        total_realized_power = 0.0
         for station in self.stations:
-            load = station.step()
+            load = station.step(tou_multiplier=self.tou_multiplier)
             grid_loads[station.power_node_id] += load
+            total_realized_power += load
 
-        # --- 3. 计算奖励 ---
-        reward = 0
-        for node, load in grid_loads.items():
-            if load > self.power_limit: reward -= 50
-        total_queue = sum([len(s.queue) for s in self.stations])
-        reward -= total_queue * 1.0
+        # --- 4. 配电网潮流计算 ---
+        self.power_grid.run_power_flow(grid_loads)
 
-        info = {"grid_loads": grid_loads}
+        # --- 5. 计算奖励 ---
+        reward = 0.0
 
-        # <--- 修改：这里直接返回图神经网络需要的 PyG Data
+        # 正向: 实际充入的总功率 (归一化 ×10)
+        max_possible = sum(s.max_grid_power for s in self.stations)
+        reward += (total_realized_power / max(1.0, max_possible)) * 10.0
+
+        # 负向: 排队等待惩罚
+        total_waiting = sum(len(s.queue) for s in self.stations)
+        reward -= total_waiting * 0.5
+
+        # 负向: 在桩慢充惩罚
+        for station in self.stations:
+            for ev in station.connected_evs:
+                p = station.last_power_allocation.get(ev.id, 0.0)
+                if p < station.max_charger_power * 0.3:
+                    reward -= 0.3
+
+        # 负向: 电压越限惩罚 (每个越限母线 -5)
+        reward -= len(self.power_grid.voltage_violations) * 5.0
+
+        # 负向: 峰时充电成本惩罚 (峰时充电越多，成本越高)
+        if self.tou_multiplier > 1.0:
+            reward -= total_realized_power / max_possible * (self.tou_multiplier - 1.0) * 3.0
+
+        # 正向: 谷时充电奖励 (鼓励在电价低时多充)
+        if self.tou_multiplier < 1.0:
+            reward += total_realized_power / max_possible * (1.0 - self.tou_multiplier) * 3.0
+
+        info = {
+            "grid_loads": grid_loads,
+            "realized_power": total_realized_power,
+            "power_allocation": {s.id: s.last_power_allocation for s in self.stations},
+            "bus_voltages": dict(self.power_grid.bus_voltages),
+            "line_losses": self.power_grid.total_loss,
+            "voltage_violations": len(self.power_grid.voltage_violations),
+            "tou_multiplier": self.tou_multiplier,
+        }
+
         return self.get_graph_state(), reward, False, info
 
     def render(self):
-        print(f"\n=== Step {self.time_step:03d} ===")
+        # 时间与电价
+        hour = self.time_step % self.steps_per_day
+        tou_tag = {0.5: "谷", 1.0: "平", 1.5: "峰"}.get(self.tou_multiplier, "?")
+        print(f"\n=== Step {self.time_step:03d} | {hour:02d}:00 [{tou_tag}时 x{self.tou_multiplier}] ===")
+
+        # 电网状态
+        for bus, v in self.power_grid.bus_voltages.items():
+            flag = " [WARN: 越限!]" if v < self.power_grid.v_min else ""
+            print(f"  {bus}: V={v:.4f} pu  Loss={self.power_grid.line_losses[bus]:.3f}kW{flag}")
+
+        # 充电站状态
         for s in self.stations:
-            status_str = f"[In-Charge: EV-{s.charging_vehicle.id}]" if s.charging_vehicle else "[Empty]"
-            # 打印当前动态电价
-            print(f"Station {s.id}: Price={s.current_price:.1f} | Queue: {[e.id for e in s.queue]} | {status_str}")
+            connected_ids = [ev.id for ev in s.connected_evs]
+            queue_ids = [ev.id for ev in s.queue]
+            alloc_str = ", ".join(
+                f"EV{eid}:{p:.1f}kW" for eid, p in s.last_power_allocation.items()
+            )
+            print(
+                f"  Station {s.id}: Price={s.current_price:.1f} | "
+                f"Load={s.last_total_load:.1f}/{s.max_grid_power:.0f}kW | "
+                f"Connected={connected_ids} | Queue={queue_ids} | "
+                f"Power=[{alloc_str}]"
+            )
 
 
 # ==========================================
@@ -189,15 +484,15 @@ if __name__ == "__main__":
             if ev.status == "IDLE" and ev.soc < 30.0:
                 actions[ev.id] = random.choice([0, 1])
 
-        # 获取图数据
         graph_state, reward, done, info = env.step(actions)
 
-        # <--- 验证点：查看图数据是否正常
         if t == 0:
             print("\n[系统自检] GNN 输入数据格式验证:")
-            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 4])")
-            print(f"边索引 edge_index shape: {graph_state.edge_index.shape} (期望: [2, Num_Edges])")
+            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 8])")
+            print(f"边索引 edge_index shape: {graph_state.edge_index.shape}")
             print(f"特征示例 (节点0 - Station): {graph_state.x[0]}")
-            # 应该是 [车辆数, 1.0, 排队数, 电价]
 
-        env.render()
+        if t % 10 == 0:
+            print(f"\n--- Step {t} | Reward: {reward:.2f} | Power: {info['realized_power']:.1f}kW | "
+                  f"TOU: x{info['tou_multiplier']} | V-violations: {info['voltage_violations']} ---")
+            env.render()
