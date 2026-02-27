@@ -92,17 +92,17 @@ class TrainingVisualizer:
                     ha='center', va='center', fontsize=12)
             ax3.axis('off')
         
-        # 4. 电网过载次数（如果有数据）
+        # 4. 电压越限次数（如果有数据）
         ax4 = axes[1, 1]
         if self.grid_overloads:
             ax4.plot(self.episodes, self.grid_overloads, 
                     color='red', linewidth=2, marker='o')
             ax4.set_xlabel('训练轮数 (Episode)')
-            ax4.set_ylabel('过载次数')
-            ax4.set_title('电网过载情况')
+            ax4.set_ylabel('越限次数')
+            ax4.set_title('电压越限情况')
             ax4.grid(True, alpha=0.3)
         else:
-            ax4.text(0.5, 0.5, '暂无过载数据', 
+            ax4.text(0.5, 0.5, '暂无电压越限数据', 
                     ha='center', va='center', fontsize=12)
             ax4.axis('off')
         
@@ -177,7 +177,10 @@ class TrainingVisualizer:
             'epsilons': self.epsilons,
             'losses': self.losses,
             'avg_queue_lengths': self.avg_queue_lengths,
-            'grid_overloads': self.grid_overloads
+            # 兼容字段：历史版本叫 grid_overloads。
+            # 当前含义是：每个 episode 内累计的“电压越限次数”(voltage_violations)。
+            'grid_overloads': self.grid_overloads,
+            'voltage_violations': self.grid_overloads,
         }
         
         save_path = os.path.join(self.save_dir, filename)
@@ -200,7 +203,7 @@ class TrainingVisualizer:
         self.epsilons = data['epsilons']
         self.losses = data.get('losses', [])
         self.avg_queue_lengths = data.get('avg_queue_lengths', [])
-        self.grid_overloads = data.get('grid_overloads', [])
+        self.grid_overloads = data.get('voltage_violations', data.get('grid_overloads', []))
         
         print(f"训练数据已加载: {load_path}")
         return True
@@ -234,7 +237,7 @@ class TrainingVisualizer:
             report += f"\n平均队列长度: {np.mean(self.avg_queue_lengths):.2f}\n"
         
         if self.grid_overloads:
-            report += f"总电网过载次数: {sum(self.grid_overloads)}\n"
+            report += f"总电压越限次数: {sum(self.grid_overloads)}\n"
         
         report += f"{'='*60}\n"
         
@@ -267,7 +270,7 @@ if __name__ == "__main__":
         # 模拟队列长度逐渐减少
         avg_queue = max(0, 5 - episode * 0.08 + np.random.randn() * 0.5)
         
-        # 模拟过载次数
+        # 模拟电压越限次数
         overload = max(0, int(10 - episode * 0.15 + np.random.randn() * 2))
         
         viz.add_episode_data(episode, reward, epsilon, 

@@ -15,36 +15,46 @@ from simEvn.Traffic import TrafficPowerEnv
 from visualization.visualize_training import TrainingVisualizer
 
 
-def run_training(episodes=50, steps_per_episode=100, batch_size=32):
+def run_training(episodes=200, steps_per_episode=100, batch_size=32):
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=8, num_actions=2)
+    agent = DQNAgent(num_features=9, num_actions=2)
     viz = TrainingVisualizer()
 
-    print("开始训练 (阶段二: 凸优化调度 + 可视化)...")
+    print("开始训练 (EV感知 + 顺序决策 + 目标网络 + 凸优化调度 + 可视化)...")
 
     for e in range(episodes):
+        env.reset()
         total_reward = 0.0
         avg_queue_sum = 0.0
         overload_count = 0
         total_realized = 0.0
 
         for _ in range(steps_per_episode):
-            current_state = env.get_graph_state()
+
+            # --- 顺序决策: 按 SOC 从低到高排序, 逐个选站 ---
+            urgent_evs = [ev for ev in env.evs
+                          if ev.status == "IDLE" and ev.soc < 30.0]
+            urgent_evs.sort(key=lambda ev: ev.soc)
 
             actions = {}
-            active_requests = False
-            for ev in env.evs:
-                if ev.status == "IDLE" and ev.soc < 30.0:
-                    action = agent.select_action(current_state)
-                    actions[ev.id] = action
-                    active_requests = True
+            ev_transitions = []
+            pending_counts = {s.id: 0 for s in env.stations}
 
-            next_state, reward, _, info = env.step(actions)
+            for ev in urgent_evs:
+                ev_state = env.get_graph_state_for_ev(ev, pending_counts)
+                action = agent.select_action(ev_state)
+                actions[ev.id] = action
+                ev_transitions.append((ev_state, action))
+                pending_counts[action] += 1   # 后续EV能看到前面的分配
 
-            if active_requests:
-                for _, act in actions.items():
-                    agent.store_transition(current_state, act, reward, next_state)
-                    agent.replay(batch_size)
+            next_global_state, reward, _, info = env.step(actions)
+
+            # 存储每辆EV的独立经验
+            for ev_state, act in ev_transitions:
+                agent.store_transition(ev_state, act, reward, next_global_state)
+
+            if ev_transitions:
+                agent.replay(batch_size)
 
             total_reward += reward
             total_realized += info.get("realized_power", 0.0)
@@ -52,8 +62,7 @@ def run_training(episodes=50, steps_per_episode=100, batch_size=32):
             total_queue = sum(len(s.queue) for s in env.stations)
             avg_queue_sum += total_queue / max(1, len(env.stations))
 
-            grid_loads = info.get("grid_loads", {})
-            overload_count += sum(1 for load in grid_loads.values() if load > env.power_limit)
+            overload_count += int(info.get("voltage_violations", 0))
 
         avg_queue = avg_queue_sum / steps_per_episode
         viz.add_episode_data(
@@ -64,12 +73,13 @@ def run_training(episodes=50, steps_per_episode=100, batch_size=32):
             overload_count=overload_count,
         )
 
-        print(
-            f"Episode {e + 1}/{episodes}, Reward: {total_reward:.2f}, "
-            f"RealizedPower: {total_realized:.1f}kW, "
-            f"AvgQueue: {avg_queue:.2f}, "
-            f"Epsilon: {agent.epsilon:.2f}"
-        )
+        if (e + 1) % 10 == 0:
+            print(
+                f"Episode {e + 1}/{episodes}, Reward: {total_reward:.2f}, "
+                f"RealizedPower: {total_realized:.1f}kW, "
+                f"AvgQueue: {avg_queue:.2f}, "
+                f"Epsilon: {agent.epsilon:.2f}"
+            )
 
     viz.plot_training_curves()
     viz.plot_reward_distribution()

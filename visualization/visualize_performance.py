@@ -51,7 +51,10 @@ class PerformanceAnalyzer:
         rewards = np.array(self.data.get("rewards", []), dtype=float)
         epsilons = np.array(self.data.get("epsilons", []), dtype=float)
         queues = np.array(self.data.get("avg_queue_lengths", []), dtype=float)
-        overloads = np.array(self.data.get("grid_overloads", []), dtype=float)
+        overloads = np.array(
+            self.data.get("voltage_violations", self.data.get("grid_overloads", [])),
+            dtype=float,
+        )
 
         fig, axes = plt.subplots(2, 2, figsize=(13, 9))
         fig.suptitle("Training Performance Overview", fontsize=14, fontweight='bold')
@@ -87,14 +90,14 @@ class PerformanceAnalyzer:
         ax.set_xlabel("Episode")
         ax.grid(True, alpha=0.3)
 
-        # Grid overloads
+        # Voltage violations (grid-side constraint indicator)
         ax = axes[1, 1]
         if overloads.size:
             ax.plot(episodes, overloads, color="firebrick")
-            ax.set_ylabel("Overloads")
+            ax.set_ylabel("Voltage violations")
         else:
-            ax.text(0.5, 0.5, "No overload data", ha="center", va="center")
-        ax.set_title("Grid overloads")
+            ax.text(0.5, 0.5, "No voltage-violation data", ha="center", va="center")
+        ax.set_title("Voltage violations")
         ax.set_xlabel("Episode")
         ax.grid(True, alpha=0.3)
 

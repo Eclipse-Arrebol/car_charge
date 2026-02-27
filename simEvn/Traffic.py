@@ -303,7 +303,7 @@ class TrafficPowerEnv:
         ]
 
         self.evs = []
-        for i in range(5):
+        for i in range(10):
             start_node = random.randint(1, 7)
             self.evs.append(EV(i, start_node))
 
@@ -318,6 +318,22 @@ class TrafficPowerEnv:
         # 预先构建图结构
         self.edge_index = self._build_edge_index()
 
+    def reset(self):
+        """重置环境到初始状态 (用于 episodic 训练)"""
+        self.stations = [
+            ChargingStation(station_id=0, traffic_node_id=0, power_node_id='Grid_A'),
+            ChargingStation(station_id=1, traffic_node_id=8, power_node_id='Grid_B')
+        ]
+        self.evs = []
+        for i in range(10):
+            start_node = random.randint(1, 7)
+            self.evs.append(EV(i, start_node))
+        self.power_limit = 15.0
+        self.time_step = 0
+        self.power_grid = PowerGrid()
+        self.tou_multiplier = 1.0
+        return self.get_graph_state()
+
     def _build_edge_index(self):
         adj = nx.to_scipy_sparse_array(self.traffic_graph).tocoo()
         row = torch.from_numpy(adj.row.astype(np.int64))
@@ -325,12 +341,13 @@ class TrafficPowerEnv:
         return torch.stack([row, col], dim=0)
 
     def get_graph_state(self):
-        """返回 PyG 的 Data 对象"""
+        """返回 PyG 的 Data 对象 (全局状态, 9 维特征)"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=8:
+        # 特征维度=9:
         #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
         #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
-        x = torch.zeros((num_nodes, 8), dtype=torch.float)
+        #   [8] 请求EV指示器 (默认全0, 由 get_graph_state_for_ev 设置)
+        x = torch.zeros((num_nodes, 9), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
@@ -351,6 +368,28 @@ class TrafficPowerEnv:
                 station.power_node_id, 1.0)             # 母线电压
 
         data = Data(x=x, edge_index=self.edge_index)
+        return data
+
+    def get_graph_state_for_ev(self, ev, pending_counts=None):
+        """
+        返回带"请求 EV 指示器"和"pending 预分配"的图状态。
+
+        Args:
+            ev:              当前请求决策的 EV 对象
+            pending_counts:  dict {station_id: count}，表示本步内已有多少辆
+                             EV 被分配到该站（尚未更新到环境）。
+                             会叠加到站节点的排队特征(feature[2])上，
+                             使后续 EV 能"看到"前面 EV 的选择，避免扎堆。
+        """
+        data = self.get_graph_state()
+        data.x[ev.curr_node, 8] = 1.0   # 标记请求EV所在节点
+
+        # 将本步内的 pending 分配叠加到排队特征上
+        if pending_counts:
+            for station in self.stations:
+                pc = pending_counts.get(station.id, 0)
+                if pc > 0:
+                    data.x[station.traffic_node_id, 2] += pc
         return data
 
     def step(self, actions):
@@ -412,9 +451,9 @@ class TrafficPowerEnv:
         max_possible = sum(s.max_grid_power for s in self.stations)
         reward += (total_realized_power / max(1.0, max_possible)) * 10.0
 
-        # 负向: 排队等待惩罚
+        # 负向: 排队等待惩罚 (权重较大, 鼓励分散导流)
         total_waiting = sum(len(s.queue) for s in self.stations)
-        reward -= total_waiting * 0.5
+        reward -= total_waiting * 3.0
 
         # 负向: 在桩慢充惩罚
         for station in self.stations:
@@ -488,7 +527,7 @@ if __name__ == "__main__":
 
         if t == 0:
             print("\n[系统自检] GNN 输入数据格式验证:")
-            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 8])")
+            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 9])")
             print(f"边索引 edge_index shape: {graph_state.edge_index.shape}")
             print(f"特征示例 (节点0 - Station): {graph_state.x[0]}")
 
