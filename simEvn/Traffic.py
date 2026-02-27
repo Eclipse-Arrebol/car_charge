@@ -445,33 +445,30 @@ class TrafficPowerEnv:
         self.power_grid.run_power_flow(grid_loads)
 
         # --- 5. 计算奖励 ---
+        # 设计原则：DQN 只能控制"把 EV 派去哪个站"，
+        # 因此奖励应聚焦于路由质量，而非充电功率（CVXPY 负责功率分配）。
         reward = 0.0
 
-        # 正向: 实际充入的总功率 (归一化 ×10)
-        max_possible = sum(s.max_grid_power for s in self.stations)
-        reward += (total_realized_power / max(1.0, max_possible)) * 10.0
+        # ① 队列均衡惩罚：两站负载越失衡，扣分越多（鼓励分散导流）
+        loads = [len(s.queue) + len(s.connected_evs) for s in self.stations]
+        queue_imbalance = abs(loads[0] - loads[1])
+        reward -= queue_imbalance * 3.0
 
-        # 负向: 排队等待惩罚 (权重较大, 鼓励分散导流)
+        # ② 总等待惩罚：排队越多越差
         total_waiting = sum(len(s.queue) for s in self.stations)
-        reward -= total_waiting * 3.0
+        reward -= total_waiting * 2.0
 
-        # 负向: 在桩慢充惩罚
+        # ③ 充电费用惩罚：在高价站充电越多扣分越多（引导去低价站）
         for station in self.stations:
-            for ev in station.connected_evs:
-                p = station.last_power_allocation.get(ev.id, 0.0)
-                if p < station.max_charger_power * 0.3:
-                    reward -= 0.3
+            reward -= station.current_price * len(station.connected_evs) * 0.4
 
-        # 负向: 电压越限惩罚 (每个越限母线 -5)
-        reward -= len(self.power_grid.voltage_violations) * 5.0
-
-        # 负向: 峰时充电成本惩罚 (峰时充电越多，成本越高)
-        if self.tou_multiplier > 1.0:
-            reward -= total_realized_power / max_possible * (self.tou_multiplier - 1.0) * 3.0
-
-        # 正向: 谷时充电奖励 (鼓励在电价低时多充)
+        # ④ 谷时利用奖励：鼓励在电价低时保持较高利用率
         if self.tou_multiplier < 1.0:
-            reward += total_realized_power / max_possible * (1.0 - self.tou_multiplier) * 3.0
+            max_possible = sum(s.max_grid_power for s in self.stations)
+            reward += (total_realized_power / max(1.0, max_possible)) * 3.0
+
+        # ⑤ 电压越限惩罚
+        reward -= len(self.power_grid.voltage_violations) * 5.0
 
         info = {
             "grid_loads": grid_loads,
