@@ -341,13 +341,14 @@ class TrafficPowerEnv:
         return torch.stack([row, col], dim=0)
 
     def get_graph_state(self):
-        """返回 PyG 的 Data 对象 (全局状态, 9 维特征)"""
+        """返回 PyG 的 Data 对象 (全局状态, 10 维特征)"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=9:
+        # 特征维度=10:
         #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
         #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
-        #   [8] 请求EV指示器 (默认全0, 由 get_graph_state_for_ev 设置)
-        x = torch.zeros((num_nodes, 9), dtype=torch.float)
+        #   [8] 请求EV的SOC/100 (默认0, 由 get_graph_state_for_ev 设置)
+        #   [9] 站到请求EV的距离反函数 (默认0, 由 get_graph_state_for_ev 设置)
+        x = torch.zeros((num_nodes, 10), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
@@ -372,7 +373,10 @@ class TrafficPowerEnv:
 
     def get_graph_state_for_ev(self, ev, pending_counts=None):
         """
-        返回带"请求 EV 指示器"和"pending 预分配"的图状态。
+        返回带"请求 EV 信息"和"pending 预分配"的图状态。
+
+        Feature[8] = 请求 EV 的 SOC/100 (标识位置 + 紧迫程度)
+        Feature[9] = 各站到请求 EV 的距离反函数 1/(1+d)
 
         Args:
             ev:              当前请求决策的 EV 对象
@@ -382,7 +386,18 @@ class TrafficPowerEnv:
                              使后续 EV 能"看到"前面 EV 的选择，避免扎堆。
         """
         data = self.get_graph_state()
-        data.x[ev.curr_node, 8] = 1.0   # 标记请求EV所在节点
+        # Feature[8]: 请求 EV 的 SOC (归一化), 同时标识 EV 所在节点
+        data.x[ev.curr_node, 8] = ev.soc / 100.0
+
+        # Feature[9]: 各站节点到请求 EV 的归一化距离信息
+        for station in self.stations:
+            try:
+                dist = nx.shortest_path_length(
+                    self.traffic_graph, ev.curr_node,
+                    station.traffic_node_id)
+            except nx.NetworkXNoPath:
+                dist = self.traffic_graph.number_of_nodes()
+            data.x[station.traffic_node_id, 9] = 1.0 / (1.0 + dist)
 
         # 将本步内的 pending 分配叠加到排队特征上
         if pending_counts:

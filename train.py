@@ -7,6 +7,7 @@ import random
 import numpy as np
 import copy
 from collections import deque
+import networkx as nx
 
 # 导入你的环境和模型
 from simEvn.Traffic import TrafficPowerEnv
@@ -44,7 +45,7 @@ class DQNAgent:
         # 探索参数 (Epsilon-Greedy) — 减慢衰减，匹配更长训练周期
         self.epsilon = 1.0
         self.epsilon_min = 0.05
-        self.epsilon_decay = 0.998
+        self.epsilon_decay = 0.999
 
         # 目标网络同步间隔 (每多少步同步一次) — 缩短至 100 步，更及时更新
         self.target_update_freq = 100
@@ -116,10 +117,18 @@ class DQNAgent:
         print(f"模型已保存: {path}")
 
     def load_model(self, path="model/trained_dqn.pth"):
-        """加载训练好的模型权重"""
+        """加载训练好的模型权重（兼容旧版不含 station_node_ids buffer 的 checkpoint）"""
         checkpoint = torch.load(path, map_location=self.device)
-        self.policy_net.load_state_dict(checkpoint['policy_net'])
-        self.target_net.load_state_dict(checkpoint['policy_net'])
+        # strict=False：旧 checkpoint 缺少 station_node_ids buffer 时不报错，
+        # 该 buffer 会保留构造函数中设定的默认值
+        missing, unexpected = self.policy_net.load_state_dict(
+            checkpoint['policy_net'], strict=False
+        )
+        if missing:
+            print(f"[load_model] 旧版 checkpoint，缺少 key（使用默认值）: {missing}")
+        if unexpected:
+            print(f"[load_model] checkpoint 中有多余 key（已忽略）: {unexpected}")
+        self.target_net.load_state_dict(self.policy_net.state_dict())
         self.epsilon = checkpoint.get('epsilon', 0.05)
         print(f"模型已加载: {path} (epsilon={self.epsilon:.3f})")
 
@@ -129,9 +138,9 @@ class DQNAgent:
 # ==========================================
 if __name__ == "__main__":
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=9, num_actions=2)  # 9个特征(含EV指示器), 2个充电站
+    agent = DQNAgent(num_features=10, num_actions=2)  # 10个特征(含SOC+距离), 2个充电站
 
-    episodes = 500
+    episodes = 800
     batch_size = 64
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + episodic reset)...")
@@ -156,17 +165,36 @@ if __name__ == "__main__":
                 action = agent.select_action(ev_state)
                 actions[ev.id] = action
 
-                # Per-EV 奖励：纯负载对比（反事实），不含电价项，防止偏选某一站
+                # Per-EV 奖励：综合行驶距离 + 等待时间 + 电价
                 target_st = env.stations[action]
                 other_st  = env.stations[1 - action]
                 eff_target = (len(target_st.queue) + len(target_st.connected_evs)
                               + pending_counts.get(action, 0))
                 eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
                               + pending_counts.get(1 - action, 0))
-                # 核心: 选了更拥堵的站扣分，选了更空的站加分（反事实对比）
-                per_ev_r = -(eff_target - eff_other) * 8.0
-                # 绝对负载惩罚: 即使两站等负载，目标站拥堵也应惩罚
-                per_ev_r -= eff_target * 3.0
+                # ① 行驶距离
+                try:
+                    dist_target = nx.shortest_path_length(
+                        env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
+                except nx.NetworkXNoPath:
+                    dist_target = 5
+                try:
+                    dist_other = nx.shortest_path_length(
+                        env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
+                except nx.NetworkXNoPath:
+                    dist_other = 5
+                # ② 预估等待 (超出充电桩容量的排队车辆)
+                excess_target = max(0, eff_target - target_st.num_chargers)
+                excess_other  = max(0, eff_other  - other_st.num_chargers)
+                # ③ 总预估代价 = 行驶时间 + 等待时间
+                cost_target = dist_target + excess_target * 3.0
+                cost_other  = dist_other  + excess_other  * 3.0
+                # 反事实优势：选了更优方案则奖，否则罚
+                per_ev_r = (cost_other - cost_target) * 4.0
+                # 绝对代价惩罚
+                per_ev_r -= cost_target * 2.0
+                # 电价偏好：选低价站有奖励
+                per_ev_r += (other_st.current_price - target_st.current_price) * 1.5
 
                 ev_transitions.append((ev_state, action, per_ev_r))
                 pending_counts[action] += 1   # 后续EV能看到前面的分配

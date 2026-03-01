@@ -41,7 +41,7 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True):
         agent = None
     else:
         print("[评估模式] 使用训练后的 DQN 策略")
-        agent = DQNAgent(num_features=9, num_actions=2)
+        agent = DQNAgent(num_features=10, num_actions=2)
         model_path = os.path.join(project_root, "model", "trained_dqn.pth")
         if os.path.exists(model_path):
             agent.load_model(model_path)

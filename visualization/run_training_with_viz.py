@@ -10,6 +10,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+import networkx as nx
 from train import DQNAgent
 from simEvn.Traffic import TrafficPowerEnv
 from visualization.visualize_training import TrainingVisualizer
@@ -17,7 +18,7 @@ from visualization.visualize_training import TrainingVisualizer
 
 def run_training(episodes=500, steps_per_episode=100, batch_size=64):
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=9, num_actions=2)
+    agent = DQNAgent(num_features=10, num_actions=2)
     viz = TrainingVisualizer()
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + 凸优化调度 + 可视化)...")
@@ -45,15 +46,30 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64):
                 action = agent.select_action(ev_state)
                 actions[ev.id] = action
 
-                # Per-EV 奖励：纯负载对比（反事实），不含电价项
+                # Per-EV 奖励：综合行驶距离 + 等待时间 + 电价
                 target_st = env.stations[action]
                 other_st  = env.stations[1 - action]
                 eff_target = (len(target_st.queue) + len(target_st.connected_evs)
                               + pending_counts.get(action, 0))
                 eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
                               + pending_counts.get(1 - action, 0))
-                per_ev_r = -(eff_target - eff_other) * 8.0
-                per_ev_r -= eff_target * 3.0
+                try:
+                    dist_target = nx.shortest_path_length(
+                        env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
+                except nx.NetworkXNoPath:
+                    dist_target = 5
+                try:
+                    dist_other = nx.shortest_path_length(
+                        env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
+                except nx.NetworkXNoPath:
+                    dist_other = 5
+                excess_target = max(0, eff_target - target_st.num_chargers)
+                excess_other  = max(0, eff_other  - other_st.num_chargers)
+                cost_target = dist_target + excess_target * 3.0
+                cost_other  = dist_other  + excess_other  * 3.0
+                per_ev_r = (cost_other - cost_target) * 4.0
+                per_ev_r -= cost_target * 2.0
+                per_ev_r += (other_st.current_price - target_st.current_price) * 1.5
 
                 ev_transitions.append((ev_state, action, per_ev_r))
                 pending_counts[action] += 1   # 后续EV能看到前面的分配
