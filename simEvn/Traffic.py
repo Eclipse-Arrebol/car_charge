@@ -29,6 +29,9 @@ class EV:
         self.soc = random.uniform(20.0, 50.0)
         self.status = "IDLE"
         self.path = []
+        self.assigned_station = None   # 当前路由目标站 ID
+        self._decision_state = None    # 决策时刻的图状态快照 (用于延迟奖励)
+        self._decision_snap = None     # 决策时刻的指标快照
 
         # --- 评估指标统计 ---
         self.travel_steps = 0          # 行驶步数 (MOVING_TO_CHARGE 状态)
@@ -338,7 +341,34 @@ class TrafficPowerEnv:
         adj = nx.to_scipy_sparse_array(self.traffic_graph).tocoo()
         row = torch.from_numpy(adj.row.astype(np.int64))
         col = torch.from_numpy(adj.col.astype(np.int64))
-        return torch.stack([row, col], dim=0)
+        edge_index = torch.stack([row, col], dim=0)
+        
+        # 构建边特征矩阵 (edge_attr)
+        edge_attr_list = []
+        for u, v in zip(row.tolist(), col.tolist()):
+            d = self.traffic_graph.get_edge_data(u, v)
+            # 处理多重边情况 (OSMnx 可能返回字典的字典)
+            if d is not None and 0 in d:
+                d = d[0]
+            elif d is None:
+                d = {}
+                
+            # 特征 1: 道路长度 (默认 100米)，除以 1000 做简单的归一化以防梯度爆炸
+            length = d.get('length', 100.0)
+            if isinstance(length, list): length = length[0]
+            
+            # 特征 2: 限速或通行速度 (默认 50 km/h)，除以 100 做简单归一化
+            speed = d.get('speed_kph', d.get('maxspeed', 50.0))
+            if isinstance(speed, list): speed = speed[0]
+            # 清理字符串类型，比如 '50 mph' 或 '50'
+            if isinstance(speed, str):
+                speed = ''.join(filter(lambda x: x.isdigit() or x == '.', speed))
+                speed = float(speed) if speed else 50.0
+                
+            edge_attr_list.append([float(length) / 1000.0, float(speed) / 100.0])
+            
+        self.edge_attr = torch.tensor(edge_attr_list, dtype=torch.float)
+        return edge_index
 
     def get_graph_state(self):
         """返回 PyG 的 Data 对象 (全局状态, 10 维特征)"""
@@ -368,7 +398,7 @@ class TrafficPowerEnv:
             x[node_idx, 6] = self.power_grid.bus_voltages.get(
                 station.power_node_id, 1.0)             # 母线电压
 
-        data = Data(x=x, edge_index=self.edge_index)
+        data = Data(x=x, edge_index=self.edge_index, edge_attr=self.edge_attr)
         return data
 
     def get_graph_state_for_ev(self, ev, pending_counts=None):

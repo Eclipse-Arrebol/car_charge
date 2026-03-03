@@ -42,11 +42,13 @@ class UserMetrics:
     def __init__(self, params=None):
         self.p = params or CostParams()
 
-    def compute(self, evs, stations=None):
+    def compute(self, evs, stations=None, avg_evs_in_line=None, end_evs_in_line=None):
         """
         Args:
             evs:      List[EV]  — 环境中的所有 EV 对象
             stations: List[ChargingStation]  — 可选，用于计算当前排队数量
+            avg_evs_in_line: float | None   — 过程平均排队数（由 Evaluator 累计）
+            end_evs_in_line: float | None   — 结束时瞬时排队数（由 Evaluator 提供）
         Returns:
             dict  — 各项指标
         """
@@ -83,10 +85,20 @@ class UserMetrics:
         else:
             avg_wait_min = 0.0
 
-        # --- 排队数量 (当前时刻) ---
-        evs_in_line = 0
+        # --- 排队数量 ---
+        # evs_in_line 默认改为“过程平均排队数”；
+        # 若未提供累积值，则回退为当前时刻瞬时值（兼容旧调用）。
+        current_evs_in_line = 0
         if stations:
-            evs_in_line = sum(len(s.queue) for s in stations)
+            current_evs_in_line = sum(len(s.queue) for s in stations)
+
+        if avg_evs_in_line is None:
+            evs_in_line = float(current_evs_in_line)
+        else:
+            evs_in_line = float(avg_evs_in_line)
+
+        if end_evs_in_line is None:
+            end_evs_in_line = float(current_evs_in_line)
 
         return {
             # 每辆车的平均值
@@ -98,6 +110,7 @@ class UserMetrics:
             # 物理指标
             "avg_wait_time_min":          avg_wait_min,
             "evs_in_line":                evs_in_line,
+            "end_evs_in_line":            float(end_evs_in_line),
             # 汇总
             "total_charge_sessions":      int(sessions.sum()),
             "total_energy_charged_kwh":   float(sum(ev.total_energy_charged for ev in evs)),
@@ -109,7 +122,8 @@ class UserMetrics:
             "travel_time_cost_per_veh", "charge_time_cost_per_veh",
             "wait_time_cost_per_veh", "charging_fee_per_veh",
             "total_charging_cost_per_veh", "avg_wait_time_min",
-            "evs_in_line", "total_charge_sessions", "total_energy_charged_kwh",
+            "evs_in_line", "end_evs_in_line",
+            "total_charge_sessions", "total_energy_charged_kwh",
         ]}
 
 
@@ -183,13 +197,24 @@ class Evaluator:
         self.params = params or CostParams()
         self.user_metrics = UserMetrics(self.params)
         self.grid_metrics = GridMetrics(self.params)
+        self._queue_sum = 0.0
+        self._queue_steps = 0
+        self._last_queue = 0.0
 
     def reset(self):
         self.grid_metrics.reset()
+        self._queue_sum = 0.0
+        self._queue_steps = 0
+        self._last_queue = 0.0
 
-    def update(self, info, power_grid):
+    def update(self, info, power_grid, stations=None):
         """每步调用"""
         self.grid_metrics.update(info, power_grid)
+        if stations is not None:
+            current_queue = float(sum(len(s.queue) for s in stations))
+            self._queue_sum += current_queue
+            self._queue_steps += 1
+            self._last_queue = current_queue
 
     def report(self, evs, stations=None, verbose=True):
         """
@@ -202,7 +227,13 @@ class Evaluator:
         Returns:
             dict — 所有指标合并
         """
-        user = self.user_metrics.compute(evs, stations)
+        avg_queue = self._queue_sum / max(1, self._queue_steps)
+        user = self.user_metrics.compute(
+            evs,
+            stations,
+            avg_evs_in_line=avg_queue,
+            end_evs_in_line=self._last_queue,
+        )
         grid = self.grid_metrics.compute()
         result = {**user, **grid}
 
@@ -224,7 +255,8 @@ class Evaluator:
         print(f"  充电费用      (Charging Fee)     :  {r['charging_fee_per_veh']:.2f}  CNY/veh")
         print(f"  总充电成本    (Total Cost)       :  {r['total_charging_cost_per_veh']:.2f}  CNY/veh")
         print(f"  平均等待时间  (Avg Wait Time)    :  {r['avg_wait_time_min']:.1f}   min")
-        print(f"  排队数量      (EVs in Line)      :  {r['evs_in_line']}     辆")
+        print(f"  平均排队数量  (Avg EVs in Line)  :  {r['evs_in_line']:.2f}   辆")
+        print(f"  终点排队数量  (End EVs in Line)  :  {r['end_evs_in_line']:.2f}   辆")
 
         print("\n【电网侧指标 Grid-side】")
         print(f"  配电网成本    (DN Cost)          :  {r['distribution_network_cost_cny']:.2f}  CNY")

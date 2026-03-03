@@ -1,25 +1,26 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.nn import GATv2Conv, global_mean_pool
 
 
 class GraphQNetwork(nn.Module):
     """
-    GNN Q-Network: 图卷积 → 站节点 embedding readout → Q 值
+    GNN Q-Network: 考虑边特征的图注意力机制 (GATv2) → 站节点 embedding readout → Q 值
 
-    支持任意路网规模和充电站位置，不再硬编码节点数。
-    通过构造参数传入充电站节点 ID 和每图节点数，适配 3×3 网格或真实 OSMnx 路网。
+    支持任意路网规模和充电站位置。
     """
 
     def __init__(self, num_features, num_actions,
-                 station_node_ids=None, num_nodes_per_graph=9):
+                 station_node_ids=None, num_nodes_per_graph=9,
+                 num_edge_features=2):
         """
         Args:
-            num_features:       节点特征维度 (当前=9)
+            num_features:       节点特征维度 (当前=10)
             num_actions:        动作数 = 充电站数量
-            station_node_ids:   充电站对应的节点索引列表，默认 [0, 8]（3×3网格）
-            num_nodes_per_graph: 每张图的节点数，默认 9（3×3网格）
+            station_node_ids:   充电站对应的节点索引列表
+            num_nodes_per_graph: 每张图的节点数
+            num_edge_features:  边特征维度 (1:长度, 2:速度/限速)
         """
         super(GraphQNetwork, self).__init__()
 
@@ -34,9 +35,22 @@ class GraphQNetwork(nn.Module):
         self.num_nodes_per_graph = num_nodes_per_graph
         self.num_actions = num_actions
 
-        # 1. 图卷积层 — 捕获空间邻域信息
-        self.conv1 = GCNConv(num_features, 32)
-        self.conv2 = GCNConv(32, 64)
+        # 1. 图注意力层 (GATv2) — 捕获微观拓扑并吸收道路信息
+        # 设置多头注意力机制 (heads=4)，通过 concat=False 聚合各头输出(平均)
+        self.conv1 = GATv2Conv(
+            in_channels=num_features,
+            out_channels=32,
+            heads=4,
+            concat=False,
+            edge_dim=num_edge_features
+        )
+        self.conv2 = GATv2Conv(
+            in_channels=32,
+            out_channels=64,
+            heads=4,
+            concat=False,
+            edge_dim=num_edge_features
+        )
 
         # 2. 站节点 readout MLP — 每个站节点 embedding → 该站 Q 值
         #    输入: 站节点 embedding(64) + 全局 context(64)
@@ -44,11 +58,13 @@ class GraphQNetwork(nn.Module):
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, data):
-        x, edge_index = data.x, data.edge_index
+        # 提取节点特征、边索引结构、边特征
+        x, edge_index, edge_attr = data.x, data.edge_index, getattr(data, 'edge_attr', None)
 
-        # --- GCN 卷积 ---
-        x = F.relu(self.conv1(x, edge_index))
-        x = F.relu(self.conv2(x, edge_index))
+        # --- GAT 卷积 ---
+        # 传入 edge_attr，使网络可以“看到”边长度、限速等物理路网属性
+        x = F.relu(self.conv1(x, edge_index, edge_attr=edge_attr))
+        x = F.relu(self.conv2(x, edge_index, edge_attr=edge_attr))
 
         # --- 提取全局 context ---
         if hasattr(data, 'batch') and data.batch is not None:

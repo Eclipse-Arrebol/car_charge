@@ -37,11 +37,11 @@ OFFLINE_FALLBACK = False
 PLACE     = "Wuchang District, Wuhan, China"   # OSM 地名
 
 # ── 路网规模 ──
-MAX_NODES = 30      # 路网精简节点数（建议 20~60）
-NUM_EVS   = 10      # EV 数量
+MAX_NODES = 40      # 路网精简节点数（与评估环境保持一致）
+NUM_EVS   = 20      # EV 数量（与评估环境保持一致）
 NUM_STATS = 2       # 充电站数量
 
-EPISODES         = 500
+EPISODES         = 200  # 增加训练轮次
 STEPS_PER_EP     = 100
 BATCH_SIZE       = 64
 # ============================================================
@@ -101,13 +101,13 @@ def run_training_real():
 
         for _ in range(STEPS_PER_EP):
 
-            # 顺序决策
+            # --- A. 顺序决策：利用率导向奖励 + per-EV 状态 ---
             urgent_evs = [ev for ev in env.evs
                           if ev.status == "IDLE" and ev.soc < 30.0]
             urgent_evs.sort(key=lambda ev: ev.soc)
 
             actions = {}
-            ev_transitions = []
+            ev_dispatch = []       # (ev, ev_state, action, shaped_reward)
             pending_counts = {s.id: 0 for s in env.stations}
 
             for ev in urgent_evs:
@@ -115,13 +115,14 @@ def run_training_real():
                 action = agent.select_action(ev_state)
                 actions[ev.id] = action
 
-                # Per-EV 奖励：综合行驶距离 + 等待时间 + 电价
+                # ── 利用率导向的塑形奖励 ──
                 target_st = env.stations[action]
                 other_st  = env.stations[1 - action]
                 eff_target = (len(target_st.queue) + len(target_st.connected_evs)
                               + pending_counts.get(action, 0))
                 eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
                               + pending_counts.get(1 - action, 0))
+
                 try:
                     dist_target = nx.shortest_path_length(
                         env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
@@ -132,23 +133,32 @@ def run_training_real():
                         env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
                 except nx.NetworkXNoPath:
                     dist_other = 5
-                excess_target = max(0, eff_target - target_st.num_chargers)
-                excess_other  = max(0, eff_other  - other_st.num_chargers)
-                cost_target = dist_target + excess_target * 3.0
-                cost_other  = dist_other  + excess_other  * 3.0
-                per_ev_r = (cost_other - cost_target) * 4.0
-                per_ev_r -= cost_target * 2.0
-                per_ev_r += (other_st.current_price - target_st.current_price) * 1.5
 
-                ev_transitions.append((ev_state, action, per_ev_r))
+                max_dist = max(dist_target + dist_other, 1)
+                norm_dist_target = dist_target / max_dist * 5.0
+
+                util_target = eff_target / max(1, target_st.num_chargers)
+                util_other  = eff_other  / max(1, other_st.num_chargers)
+
+                per_ev_r = -(util_target - util_other) * 20.0
+                per_ev_r -= norm_dist_target * 1.5
+                per_ev_r += (other_st.current_price - target_st.current_price) * 1.0
+                if util_target >= 1.0 and util_other < 1.0:
+                    per_ev_r -= 30.0
+
+                ev_dispatch.append((ev, ev_state, action, per_ev_r))
                 pending_counts[action] += 1
 
             next_state, reward, _, info = env.step(actions)
 
-            for ev_state, act, per_ev_r in ev_transitions:
-                agent.store_transition(ev_state, act, per_ev_r, next_state)
+            # 经验存储：塑形奖励 + 全局奖励混合
+            global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
+            for ev, ev_state, act, per_ev_r in ev_dispatch:
+                mixed_r = per_ev_r + global_bonus
+                next_ev_state = env.get_graph_state_for_ev(ev)
+                agent.store_transition(ev_state, act, mixed_r, next_ev_state)
 
-            if ev_transitions:
+            if ev_dispatch or len(agent.memory) >= BATCH_SIZE:
                 agent.replay(BATCH_SIZE)
 
             total_reward   += reward

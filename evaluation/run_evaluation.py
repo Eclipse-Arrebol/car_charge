@@ -19,11 +19,12 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from simEvn.Traffic import TrafficPowerEnv
+from simEvn.RealTrafficEnv import RealTrafficEnv
 from train import DQNAgent
 from evaluation.metrics import Evaluator
 
 
-def run_evaluation(episodes=3, steps_per_episode=100, use_random=True):
+def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_map=True):
     """
     运行评估。
 
@@ -31,31 +32,79 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True):
         episodes:          评估轮数 (多轮取均值更稳定)
         steps_per_episode: 每轮步数
         use_random:        True -> 随机策略基线;  False -> 加载已训练模型
+        use_real_map:      True -> 使用真实路网 (如珠江新城); False -> 使用 3x3 网格
     """
-    env = TrafficPowerEnv()
+    # 1. 环境初始化
+    if use_real_map:
+        graphml_path = os.path.join(project_root, "zhujiang_new_town.graphml")
+        if not os.path.exists(graphml_path):
+            print(f"[错误] 未找到真实路网文件: {graphml_path}")
+            print("自动回退到 3x3 基础网格环境。")
+            use_real_map = False
+            env = TrafficPowerEnv()
+        else:
+            print(f"[环境] 加载真实路网: {graphml_path}")
+            env = RealTrafficEnv(
+                graphml_file=graphml_path,
+                num_stations=2,
+                num_evs=20,
+                max_nodes=40,
+                seed=42
+            )
+    else:
+        print("[环境] 使用 3x3 基础网格")
+        env = TrafficPowerEnv()
+
     evaluator = Evaluator()
 
-    # 策略选择
+    # 2. 策略选择
     if use_random:
-        print("[评估模式] 使用随机策略 (Random Baseline)")
+        print("[策略] 使用随机策略 (Random Baseline)")
         agent = None
     else:
-        print("[评估模式] 使用训练后的 DQN 策略")
-        agent = DQNAgent(num_features=10, num_actions=2)
-        model_path = os.path.join(project_root, "model", "trained_dqn.pth")
+        print("[策略] 使用训练后的 DQN 策略")
+        
+        # 获取环境特定的参数以初始化网络
+        num_features = 10
+        num_actions = getattr(env, 'num_stations', 2)
+        station_node_ids = getattr(env, 'station_node_ids', [0, 8])
+        num_nodes_per_graph = getattr(env, 'num_nodes', 9)
+
+        agent = DQNAgent(
+            num_features=num_features, 
+            num_actions=num_actions,
+            station_node_ids=station_node_ids,
+            num_nodes_per_graph=num_nodes_per_graph
+        )
+        
+        # 根据是否是真实路网，尝试加载对应的权重文件
+        model_name = "trained_dqn_real.pth" if use_real_map else "trained_dqn.pth"
+        model_path = os.path.join(project_root, "model", model_name)
+        
         if os.path.exists(model_path):
             agent.load_model(model_path)
+            print(f"[模型] 成功加载权重: {model_path}")
         else:
-            print(f"  [WARNING] 未找到模型文件: {model_path}")
-            print(f"  请先运行 train.py 或 visualization/run_training_with_viz.py 完成训练")
+            print(f"[错误] 未找到模型文件: {model_path}")
+            print(f"请先运行训练脚本生成模型文件。")
             return None
-        agent.epsilon = 0.0  # 纯利用，不探索
+            
+        agent.epsilon = 0.02  # 近乎纯利用，保留微量随机打破 Q 值退化
 
     all_reports = []
 
     for ep in range(episodes):
-        # 重置环境与评估器
-        env = TrafficPowerEnv()
+        # 3. 每轮重置环境与评估器
+        if use_real_map:
+            env = RealTrafficEnv(
+                graphml_file=graphml_path,
+                num_stations=2,
+                num_evs=20,
+                max_nodes=40,
+                seed=rng.randint(0, 10000) # 每次评估换个种子改变EV初始位置
+            )
+        else:
+            env = TrafficPowerEnv()
         evaluator.reset()
 
         for step in range(steps_per_episode):
@@ -80,8 +129,8 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True):
             # 执行
             _, reward, _, info = env.step(actions)
 
-            # 累计电网侧指标
-            evaluator.update(info, env.power_grid)
+            # 累计电网侧指标 + 排队过程指标
+            evaluator.update(info, env.power_grid, env.stations)
 
         # 生成本轮报告
         report = evaluator.report(env.evs, env.stations, verbose=(episodes == 1))
@@ -111,16 +160,24 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True):
 
 
 if __name__ == "__main__":
+    # 配置是否使用真实路网(珠江新城.graphml) 或 3x3网格
+    USE_REAL_MAP = True
+    EPISODES = 5
+    STEPS = 100
+    
+    map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
+    print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
+
     print("=" * 62)
     print("  【1/2】随机策略基线")
     print("=" * 62)
-    random_report = run_evaluation(episodes=10, steps_per_episode=100, use_random=True)
+    random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS, use_random=True, use_real_map=USE_REAL_MAP)
 
     print("\n\n")
     print("=" * 62)
     print("  【2/2】DQN 策略评估")
     print("=" * 62)
-    dqn_report = run_evaluation(episodes=10, steps_per_episode=100, use_random=False)
+    dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS, use_random=False, use_real_map=USE_REAL_MAP)
 
     # 对比表
     if random_report and dqn_report:
