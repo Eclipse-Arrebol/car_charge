@@ -29,6 +29,11 @@ class EV:
         self.soc = random.uniform(20.0, 50.0)
         self.status = "IDLE"
         self.path = []
+        self.last_traversed_nodes = []   # 本 step 内实际经过并到达的节点序列
+        self.current_edge_from = None    # 当前所在边的起点
+        self.current_edge_target = None  # 当前正在通过的下一跳节点
+        self.remaining_edge_time_h = 0.0 # 当前边剩余通行时间 (小时)
+        self.current_edge_speed_kph = 0.0
         self.assigned_station = None   # 当前路由目标站 ID
         self._decision_state = None    # 决策时刻的图状态快照 (用于延迟奖励)
         self._decision_snap = None     # 决策时刻的指标快照
@@ -41,11 +46,50 @@ class EV:
         self.total_energy_charged = 0.0 # 累计充入电量 (kWh，简化: 1步的kW=kWh)
         self.charge_sessions = 0       # 完成的充电次数
 
-    def move(self):
-        if self.status == "MOVING_TO_CHARGE" and self.path:
-            self.curr_node = self.path.pop(0)
-            self.soc -= 2.0
-            if self.soc < 0: self.soc = 0
+    def move(self, env, step_hours=1.0):
+        """
+        连续移动模型：按道路长度/限速计算边通行时间，
+        每个 step 按时间预算推进，可跨多条边或停留在边中间。
+        """
+        self.last_traversed_nodes = []
+        if self.status != "MOVING_TO_CHARGE":
+            return
+
+        remaining = max(0.0, float(step_hours))
+        moved_hours = 0.0
+
+        while remaining > 1e-9:
+            # 若当前不在边上，则尝试进入下一条边
+            if self.remaining_edge_time_h <= 1e-9:
+                if not self.path:
+                    break
+                next_node = self.path[0]
+                _, speed_kph, travel_time_h = env.enter_edge(self.curr_node, next_node)
+                self.current_edge_from = self.curr_node
+                self.current_edge_target = next_node
+                self.current_edge_speed_kph = speed_kph
+                self.remaining_edge_time_h = max(1e-6, travel_time_h)
+
+            consume = min(remaining, self.remaining_edge_time_h)
+            remaining -= consume
+            moved_hours += consume
+            self.remaining_edge_time_h -= consume
+
+            # 当前边走完，抵达下一节点
+            if self.remaining_edge_time_h <= 1e-9:
+                env.leave_edge(self.current_edge_from, self.current_edge_target)
+                self.curr_node = self.current_edge_target
+                self.last_traversed_nodes.append(self.curr_node)
+                if self.path and self.path[0] == self.current_edge_target:
+                    self.path.pop(0)
+                self.current_edge_from = None
+                self.current_edge_target = None
+                self.current_edge_speed_kph = 0.0
+
+        # 与旧逻辑兼容：按行驶时长扣 SOC（旧版约 2 SOC / step）
+        self.soc -= 2.0 * moved_hours / max(1e-6, float(step_hours))
+        if self.soc < 0:
+            self.soc = 0
 
 
 # ==========================================
@@ -313,6 +357,10 @@ class TrafficPowerEnv:
         self.power_limit = 15.0
         self.time_step = 0
         self.steps_per_day = 24               # 每天 24 步 (1步 = 1小时)
+        self.step_duration_h = 1.0            # 每个 step 对应的仿真时长 (小时)
+        self.bpr_alpha = 0.15
+        self.bpr_beta = 4.0
+        self.edge_active_counts = {}          # {(u, v): active_vehicles}
 
         # 电网物理模型
         self.power_grid = PowerGrid()
@@ -335,7 +383,158 @@ class TrafficPowerEnv:
         self.time_step = 0
         self.power_grid = PowerGrid()
         self.tou_multiplier = 1.0
+        self.edge_active_counts = {}
         return self.get_graph_state()
+
+    @staticmethod
+    def _parse_speed_kph(speed_raw, default=50.0):
+        if isinstance(speed_raw, list):
+            speed_raw = speed_raw[0] if speed_raw else default
+        if isinstance(speed_raw, str):
+            cleaned = ''.join(ch for ch in speed_raw if (ch.isdigit() or ch == '.'))
+            speed_raw = float(cleaned) if cleaned else default
+        try:
+            speed = float(speed_raw)
+        except (TypeError, ValueError):
+            speed = float(default)
+        return max(1.0, speed)
+
+    @staticmethod
+    def _parse_lanes_count(lanes_raw, default=1.0):
+        if isinstance(lanes_raw, list):
+            lanes_raw = lanes_raw[0] if lanes_raw else default
+        if isinstance(lanes_raw, str):
+            cleaned = ''.join(ch for ch in lanes_raw if (ch.isdigit() or ch == '.'))
+            lanes_raw = float(cleaned) if cleaned else default
+        try:
+            lanes = float(lanes_raw)
+        except (TypeError, ValueError):
+            lanes = float(default)
+        return max(1.0, lanes)
+
+    @staticmethod
+    def _infer_capacity_per_lane(highway_type):
+        # 粗粒度经验值（veh/h/lane），优先保证属性缺失时有稳定回退。
+        if isinstance(highway_type, list):
+            highway_type = highway_type[0] if highway_type else ""
+        h = str(highway_type).lower()
+        if "motorway" in h:
+            return 2200.0
+        if "trunk" in h:
+            return 2000.0
+        if "primary" in h:
+            return 1800.0
+        if "secondary" in h:
+            return 1500.0
+        if "tertiary" in h:
+            return 1200.0
+        if "residential" in h:
+            return 800.0
+        if "service" in h:
+            return 600.0
+        return 1000.0
+
+    @classmethod
+    def _parse_capacity_vehph(cls, attrs):
+        cap_raw = attrs.get('capacity', None)
+        if cap_raw is not None:
+            if isinstance(cap_raw, list):
+                cap_raw = cap_raw[0] if cap_raw else None
+            if isinstance(cap_raw, str):
+                cleaned = ''.join(ch for ch in cap_raw if (ch.isdigit() or ch == '.'))
+                cap_raw = float(cleaned) if cleaned else None
+            try:
+                cap = float(cap_raw)
+                if cap > 0:
+                    return cap
+            except (TypeError, ValueError):
+                pass
+
+        lanes = cls._parse_lanes_count(attrs.get('lanes', 1))
+        cap_lane = cls._infer_capacity_per_lane(attrs.get('highway', ''))
+        return lanes * cap_lane
+
+    @classmethod
+    def _edge_profiles_from_data(cls, edge_data):
+        # MultiGraph: {key: attrs_dict}; Graph: attrs_dict
+        if isinstance(edge_data, dict) and edge_data and all(isinstance(v, dict) for v in edge_data.values()):
+            candidates = list(edge_data.values())
+        else:
+            candidates = [edge_data or {}]
+
+        profiles = []
+        for attrs in candidates:
+            length = attrs.get('length', 100.0)
+            if isinstance(length, list):
+                length = length[0] if length else 100.0
+            try:
+                length_m = max(1.0, float(length))
+            except (TypeError, ValueError):
+                length_m = 100.0
+
+            speed_kph = cls._parse_speed_kph(attrs.get('speed_kph', attrs.get('maxspeed', 50.0)))
+            t0_h = (length_m / 1000.0) / speed_kph
+            capacity_vehph = cls._parse_capacity_vehph(attrs)
+            profiles.append((length_m, speed_kph, max(1e-6, t0_h), max(1.0, capacity_vehph)))
+
+        return profiles
+
+    def _edge_flow(self, u, v):
+        # 无向路网下，双向车流合并计入 x_a
+        return float(self.edge_active_counts.get((u, v), 0) + self.edge_active_counts.get((v, u), 0))
+
+    def _bpr_time_h(self, t0_h, x_flow, c_capacity):
+        ratio = max(0.0, float(x_flow)) / max(1.0, float(c_capacity) * self.step_duration_h)
+        return max(1e-6, float(t0_h) * (1.0 + self.bpr_alpha * (ratio ** self.bpr_beta)))
+
+    def _dynamic_profiles(self, u, v, add_vehicle=0.0):
+        edge_data = self.traffic_graph.get_edge_data(u, v, default={})
+        base_profiles = self._edge_profiles_from_data(edge_data)
+        x_flow = self._edge_flow(u, v) + float(add_vehicle)
+
+        dyn = []
+        for length_m, speed_kph, t0_h, capacity_vehph in base_profiles:
+            t_h = self._bpr_time_h(t0_h, x_flow, capacity_vehph)
+            dyn.append((length_m, speed_kph, t_h, t0_h, x_flow, capacity_vehph))
+        return dyn
+
+    def _travel_time_weight(self, u, v, edge_data):
+        # 估计路径时把“本车将进入该边”计入 x_a（add_vehicle=1）
+        dyn = self._dynamic_profiles(u, v, add_vehicle=1.0)
+        if dyn:
+            return min(item[2] for item in dyn)
+        profiles = self._edge_profiles_from_data(edge_data)
+        return min((t0 for _, _, t0, _ in profiles), default=1e-6)
+
+    def get_edge_travel_profile(self, u, v):
+        dyn = self._dynamic_profiles(u, v, add_vehicle=1.0)
+        if not dyn:
+            return 100.0, 50.0, 0.002
+        length_m, speed_kph, t_h, _, _, _ = min(dyn, key=lambda x: x[2])
+        return length_m, speed_kph, t_h
+
+    def get_edge_base_profile(self, u, v):
+        edge_data = self.traffic_graph.get_edge_data(u, v, default={})
+        profiles = self._edge_profiles_from_data(edge_data)
+        if not profiles:
+            return 100.0, 50.0, 0.002, 1000.0
+        return min(profiles, key=lambda x: x[2])
+
+    def enter_edge(self, u, v):
+        length_m, speed_kph, t_h = self.get_edge_travel_profile(u, v)
+        key = (u, v)
+        self.edge_active_counts[key] = self.edge_active_counts.get(key, 0) + 1
+        return length_m, speed_kph, t_h
+
+    def leave_edge(self, u, v):
+        if u is None or v is None:
+            return
+        key = (u, v)
+        cur = self.edge_active_counts.get(key, 0)
+        if cur <= 1:
+            self.edge_active_counts.pop(key, None)
+        else:
+            self.edge_active_counts[key] = cur - 1
 
     def _build_edge_index(self):
         adj = nx.to_scipy_sparse_array(self.traffic_graph).tocoo()
@@ -346,26 +545,8 @@ class TrafficPowerEnv:
         # 构建边特征矩阵 (edge_attr)
         edge_attr_list = []
         for u, v in zip(row.tolist(), col.tolist()):
-            d = self.traffic_graph.get_edge_data(u, v)
-            # 处理多重边情况 (OSMnx 可能返回字典的字典)
-            if d is not None and 0 in d:
-                d = d[0]
-            elif d is None:
-                d = {}
-                
-            # 特征 1: 道路长度 (默认 100米)，除以 1000 做简单的归一化以防梯度爆炸
-            length = d.get('length', 100.0)
-            if isinstance(length, list): length = length[0]
-            
-            # 特征 2: 限速或通行速度 (默认 50 km/h)，除以 100 做简单归一化
-            speed = d.get('speed_kph', d.get('maxspeed', 50.0))
-            if isinstance(speed, list): speed = speed[0]
-            # 清理字符串类型，比如 '50 mph' 或 '50'
-            if isinstance(speed, str):
-                speed = ''.join(filter(lambda x: x.isdigit() or x == '.', speed))
-                speed = float(speed) if speed else 50.0
-                
-            edge_attr_list.append([float(length) / 1000.0, float(speed) / 100.0])
+            length_m, speed_kph, _, _ = self.get_edge_base_profile(u, v)
+            edge_attr_list.append([float(length_m) / 1000.0, float(speed_kph) / 100.0])
             
         self.edge_attr = torch.tensor(edge_attr_list, dtype=torch.float)
         return edge_index
@@ -424,7 +605,9 @@ class TrafficPowerEnv:
             try:
                 dist = nx.shortest_path_length(
                     self.traffic_graph, ev.curr_node,
-                    station.traffic_node_id)
+                    station.traffic_node_id,
+                    weight=self._travel_time_weight,
+                )
             except nx.NetworkXNoPath:
                 dist = self.traffic_graph.number_of_nodes()
             data.x[station.traffic_node_id, 9] = 1.0 / (1.0 + dist)
@@ -453,20 +636,31 @@ class TrafficPowerEnv:
                     target_station = self.stations[target_id]
                     try:
                         path = nx.shortest_path(
-                            self.traffic_graph, source=ev.curr_node, target=target_station.traffic_node_id
+                            self.traffic_graph,
+                            source=ev.curr_node,
+                            target=target_station.traffic_node_id,
+                            weight=self._travel_time_weight,
                         )
                         if len(path) > 1:
                             ev.path = path[1:]
                             ev.target_station_idx = target_id
                             ev.status = "MOVING_TO_CHARGE"
+                            ev.current_edge_from = None
+                            ev.current_edge_target = None
+                            ev.remaining_edge_time_h = 0.0
+                            ev.current_edge_speed_kph = 0.0
                     except:
                         pass
 
             elif ev.status == "MOVING_TO_CHARGE":
                 ev.travel_steps += 1
-                ev.move()
+                ev.move(self, step_hours=self.step_duration_h)
                 target_station = self.stations[ev.target_station_idx]
-                if not ev.path and ev.curr_node == target_station.traffic_node_id:
+                if (
+                    not ev.path
+                    and ev.remaining_edge_time_h <= 1e-9
+                    and ev.curr_node == target_station.traffic_node_id
+                ):
                     target_station.queue.append(ev)
                     ev.status = "WAITING"
 

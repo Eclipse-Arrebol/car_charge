@@ -24,6 +24,10 @@ from train import DQNAgent
 from evaluation.metrics import Evaluator
 
 
+# 真实路网评估默认使用全图（仅当节点数超过该值时才会精简）
+REAL_MAP_MAX_NODES = 9999
+
+
 def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_map=True):
     """
     运行评估。
@@ -48,7 +52,7 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_
                 graphml_file=graphml_path,
                 num_stations=2,
                 num_evs=20,
-                max_nodes=40,
+                max_nodes=REAL_MAP_MAX_NODES,
                 seed=42
             )
     else:
@@ -100,7 +104,7 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_
                 graphml_file=graphml_path,
                 num_stations=2,
                 num_evs=20,
-                max_nodes=40,
+                max_nodes=REAL_MAP_MAX_NODES,
                 seed=rng.randint(0, 10000) # 每次评估换个种子改变EV初始位置
             )
         else:

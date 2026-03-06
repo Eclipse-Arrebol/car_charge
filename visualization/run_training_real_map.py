@@ -37,7 +37,7 @@ OFFLINE_FALLBACK = False
 PLACE     = "Wuchang District, Wuhan, China"   # OSM 地名
 
 # ── 路网规模 ──
-MAX_NODES = 40      # 路网精简节点数（与评估环境保持一致）
+MAX_NODES = 9999    # 使用完整路网（不精简节点）
 NUM_EVS   = 20      # EV 数量（与评估环境保持一致）
 NUM_STATS = 2       # 充电站数量
 

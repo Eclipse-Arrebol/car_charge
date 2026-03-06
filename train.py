@@ -119,10 +119,22 @@ class DQNAgent:
     def load_model(self, path="model/trained_dqn.pth"):
         """加载训练好的模型权重（兼容旧版不含 station_node_ids buffer 的 checkpoint）"""
         checkpoint = torch.load(path, map_location=self.device)
+        state_dict = dict(checkpoint['policy_net'])
+
+        # station_node_ids 必须与当前环境一致；不从 checkpoint 覆盖，避免跨路网越界。
+        ckpt_station_ids = state_dict.pop('station_node_ids', None)
+        if ckpt_station_ids is not None:
+            cur_station_ids = self.policy_net.state_dict().get('station_node_ids', None)
+            if cur_station_ids is not None and not torch.equal(ckpt_station_ids, cur_station_ids):
+                print(
+                    "[load_model] 忽略 checkpoint 中的 station_node_ids，"
+                    f"使用当前环境站点: {cur_station_ids.tolist()}"
+                )
+
         # strict=False：旧 checkpoint 缺少 station_node_ids buffer 时不报错，
         # 该 buffer 会保留构造函数中设定的默认值
         missing, unexpected = self.policy_net.load_state_dict(
-            checkpoint['policy_net'], strict=False
+            state_dict, strict=False
         )
         if missing:
             print(f"[load_model] 旧版 checkpoint，缺少 key（使用默认值）: {missing}")

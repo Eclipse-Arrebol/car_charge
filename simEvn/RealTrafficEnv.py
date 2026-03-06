@@ -148,6 +148,10 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.power_limit = 15.0
         self.time_step = 0
         self.steps_per_day = 24
+        self.step_duration_h = 1.0
+        self.bpr_alpha = 0.15
+        self.bpr_beta = 4.0
+        self.edge_active_counts = {}
         self.tou_multiplier = 1.0
         self.edge_index = self._build_edge_index()
 
@@ -181,6 +185,8 @@ class RealTrafficEnv(TrafficPowerEnv):
             self.evs.append(EV(i, start))
 
         self.time_step = 0
+        self.step_duration_h = 1.0
+        self.edge_active_counts = {}
         self.tou_multiplier = 1.0
         return self.get_graph_state()
 
