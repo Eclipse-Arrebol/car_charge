@@ -21,7 +21,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 class TrainingVisualizer:
     """训练过程可视化器"""
     
-    def __init__(self, save_dir='visualization/results'):
+    def __init__(self, save_dir='results'):
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
         

@@ -57,7 +57,14 @@ class GraphQNetwork(nn.Module):
         self.fc1 = nn.Linear(64 + 64, 64)
         self.fc2 = nn.Linear(64, 1)
 
-    def forward(self, data):
+    def forward(self, data, action_mask=None):
+        """
+        Args:
+            data:        PyG Data/Batch 对象
+            action_mask: 可选，shape [B, num_actions] 的 bool/float 张量，
+                         True/1.0 表示该动作有效，False/0.0 表示无效。
+                         无效动作的 Q 值会被设为 -1e8 以阻止选取。
+        """
         # 提取节点特征、边索引结构、边特征
         x, edge_index, edge_attr = data.x, data.edge_index, getattr(data, 'edge_attr', None)
 
@@ -87,4 +94,12 @@ class GraphQNetwork(nn.Module):
             q = self.fc2(q)                                   # [B, 1]
             q_values_list.append(q)
 
-        return torch.cat(q_values_list, dim=1)                # [B, num_actions]
+        q_values = torch.cat(q_values_list, dim=1)            # [B, num_actions]
+
+        # --- 无效动作掩码 (Action Mask) ---
+        if action_mask is not None:
+            action_mask = action_mask.to(q_values.device)
+            # 将无效动作的 Q 值设为极大负值，使其被 argmax/softmax 忽略
+            q_values = q_values.masked_fill(~action_mask.bool(), -1e8)
+
+        return q_values

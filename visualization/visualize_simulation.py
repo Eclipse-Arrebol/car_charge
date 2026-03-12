@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import networkx as nx
 
-from simEvn.Traffic import TrafficPowerEnv
+from env.Traffic import TrafficPowerEnv
 
 
 def infer_grid_positions(graph):

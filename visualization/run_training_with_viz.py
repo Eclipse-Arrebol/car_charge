@@ -12,7 +12,7 @@ if project_root not in sys.path:
 
 import networkx as nx
 from train import DQNAgent
-from simEvn.Traffic import TrafficPowerEnv
+from env.Traffic import TrafficPowerEnv
 from visualization.visualize_training import TrainingVisualizer
 
 
@@ -43,7 +43,8 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64):
 
             for ev in urgent_evs:
                 ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-                action = agent.select_action(ev_state)
+                action_mask = env.get_action_mask(ev)
+                action = agent.select_action(ev_state, action_mask=action_mask)
                 actions[ev.id] = action
 
                 # Per-EV 奖励：综合行驶距离 + 等待时间 + 电价
@@ -71,14 +72,14 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64):
                 per_ev_r -= cost_target * 2.0
                 per_ev_r += (other_st.current_price - target_st.current_price) * 1.5
 
-                ev_transitions.append((ev_state, action, per_ev_r))
+                ev_transitions.append((ev_state, action, per_ev_r, action_mask))
                 pending_counts[action] += 1   # 后续EV能看到前面的分配
 
             next_global_state, reward, _, info = env.step(actions)
 
             # 存储每辆EV的独立经验（纯 per-EV 路由奖励）
-            for ev_state, act, per_ev_r in ev_transitions:
-                agent.store_transition(ev_state, act, per_ev_r, next_global_state)
+            for ev_state, act, per_ev_r, mask in ev_transitions:
+                agent.store_transition(ev_state, act, per_ev_r, next_global_state, action_mask=mask)
 
             if ev_transitions:
                 agent.replay(batch_size)

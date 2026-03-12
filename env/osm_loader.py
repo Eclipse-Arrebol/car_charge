@@ -6,7 +6,7 @@ OSMnx 真实路网加载工具
   2. 离线模式：生成具有真实路网特征的合成图（无需网络，用于无法联网环境）
 
 用法示例:
-    from simEvn.osm_loader import load_road_network
+    from env.osm_loader import load_road_network
 
     # 联网模式
     graph, station_nodes, node_positions = load_road_network(

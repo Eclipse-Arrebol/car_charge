@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 
 class PerformanceAnalyzer:
-    def __init__(self, data_path="visualization/results/training_data.json"):
+    def __init__(self, data_path="results/training_data.json"):
         self.data_path = data_path
         self.data = None
 

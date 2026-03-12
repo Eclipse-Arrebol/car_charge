@@ -10,8 +10,8 @@ from collections import deque
 import networkx as nx
 
 # 导入你的环境和模型
-from simEvn.Traffic import TrafficPowerEnv
-from model.GraphQNetwork import GraphQNetwork
+from env.Traffic import TrafficPowerEnv
+from agents.GraphQNetwork import GraphQNetwork
 
 
 # ==========================================
@@ -51,21 +51,28 @@ class DQNAgent:
         self.target_update_freq = 100
         self.train_step_count = 0
 
-    def select_action(self, state_data):
-        """输入当前图状态，输出动作(去哪个站)"""
+    def select_action(self, state_data, action_mask=None):
+        """输入当前图状态 + 可选动作掩码，输出动作(去哪个站)"""
         if random.random() < self.epsilon:
+            # 探索时也遵守掩码：只从有效动作中随机选
+            if action_mask is not None:
+                valid = action_mask.squeeze().nonzero(as_tuple=True)[0].tolist()
+                if valid:
+                    return random.choice(valid)
             return random.randint(0, self.num_actions - 1)
 
         with torch.no_grad():
             state_data = state_data.to(self.device)
-            q_values = self.policy_net(state_data)
+            if action_mask is not None:
+                action_mask = action_mask.to(self.device)
+            q_values = self.policy_net(state_data, action_mask=action_mask)
             return q_values.argmax().item()
 
-    def store_transition(self, state, action, reward, next_state):
-        self.memory.append((state, action, reward, next_state))
+    def store_transition(self, state, action, reward, next_state, action_mask=None):
+        self.memory.append((state, action, reward, next_state, action_mask))
 
     def replay(self, batch_size):
-        """经验回放 (使用目标网络计算 TD 目标)"""
+        """经验回放 (使用目标网络计算 TD 目标, 支持 Action Mask)"""
         if len(self.memory) < batch_size:
             return
 
@@ -77,16 +84,26 @@ class DQNAgent:
         action_batch = torch.tensor([m[1] for m in minibatch], device=self.device)
         reward_batch = torch.tensor([m[2] for m in minibatch], dtype=torch.float, device=self.device)
 
+        # 拼装 action mask batch (兼容旧版无 mask 的经验)
+        mask_list = []
+        for m in minibatch:
+            if len(m) > 4 and m[4] is not None:
+                mask_list.append(m[4])
+            else:
+                mask_list.append(torch.ones(1, self.num_actions, dtype=torch.bool))
+        mask_batch = torch.cat(mask_list, dim=0).to(self.device)  # [B, num_actions]
+
         # Reward 截断：per-EV 路由奖励范围约 [-120, +40]，截断过大异常值
         reward_batch = torch.clamp(reward_batch, min=-120.0, max=40.0)
 
-        # Q(s, a)
+        # Q(s, a) — 训练时不施加 mask（mask 只影响动作选择，不影响 Q 值回归）
         q_values = self.policy_net(state_batch)
         curr_q = q_values.gather(1, action_batch.unsqueeze(1)).squeeze(1)
 
-        # Double DQN: 用策略网络选动作，目标网络估值，缓解 Q 值高估
+        # Double DQN: 用策略网络选动作(带 mask)，目标网络估值
         with torch.no_grad():
-            next_actions = self.policy_net(next_state_batch).argmax(1, keepdim=True)
+            next_q_policy = self.policy_net(next_state_batch, action_mask=mask_batch)
+            next_actions = next_q_policy.argmax(1, keepdim=True)
             next_q = self.target_net(next_state_batch).gather(1, next_actions).squeeze(1)
             target_q = reward_batch + 0.99 * next_q
 
@@ -106,7 +123,7 @@ class DQNAgent:
         if self.train_step_count % self.target_update_freq == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
-    def save_model(self, path="model/trained_dqn.pth"):
+    def save_model(self, path="checkpoints/trained_dqn.pth"):
         """保存训练好的模型权重"""
         import os
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -116,7 +133,7 @@ class DQNAgent:
         }, path)
         print(f"模型已保存: {path}")
 
-    def load_model(self, path="model/trained_dqn.pth"):
+    def load_model(self, path="checkpoints/trained_dqn.pth"):
         """加载训练好的模型权重（兼容旧版不含 station_node_ids buffer 的 checkpoint）"""
         checkpoint = torch.load(path, map_location=self.device)
         state_dict = dict(checkpoint['policy_net'])
@@ -174,7 +191,8 @@ if __name__ == "__main__":
 
             for ev in urgent_evs:
                 ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-                action = agent.select_action(ev_state)
+                action_mask = env.get_action_mask(ev)
+                action = agent.select_action(ev_state, action_mask=action_mask)
                 actions[ev.id] = action
 
                 # ── 利用率导向的塑形奖励 ──
@@ -214,7 +232,7 @@ if __name__ == "__main__":
                 if util_target >= 1.0 and util_other < 1.0:
                     per_ev_r -= 30.0
 
-                ev_dispatch.append((ev, ev_state, action, per_ev_r))
+                ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask))
                 pending_counts[action] += 1
 
             # --- B. 环境执行 ---
@@ -223,10 +241,10 @@ if __name__ == "__main__":
             # --- C. 经验存储：塑形奖励 + 全局奖励混合 ---
             # 全局奖励包含队列均衡+等待惩罚，按参与人数均摊
             global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
-            for ev, ev_state, act, per_ev_r in ev_dispatch:
+            for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
                 mixed_r = per_ev_r + global_bonus
                 next_ev_state = env.get_graph_state_for_ev(ev)
-                agent.store_transition(ev_state, act, mixed_r, next_ev_state)
+                agent.store_transition(ev_state, act, mixed_r, next_ev_state, action_mask=mask)
 
             # --- D. 经验回放 ---
             if ev_dispatch or len(agent.memory) >= batch_size:

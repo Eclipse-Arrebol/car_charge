@@ -5,7 +5,7 @@
 其余仿真逻辑（EV 移动、CVXPY 充电调度、分时电价）完全复用。
 
 用法:
-    from simEvn.RealTrafficEnv import RealTrafficEnv
+    from env.RealTrafficEnv import RealTrafficEnv
     from train import DQNAgent
 
     env = RealTrafficEnv(
@@ -37,11 +37,11 @@ _root = os.path.dirname(_cur)
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from simEvn.Traffic import (
+from env.Traffic import (
     TrafficPowerEnv, EV, ChargingStation, PowerGrid,
     get_tou_multiplier,
 )
-from simEvn.osm_loader import load_road_network, load_road_network_by_point, load_road_network_from_file
+from env.osm_loader import load_road_network, load_road_network_by_point, load_road_network_from_file
 
 
 class RealTrafficEnv(TrafficPowerEnv):

@@ -15,7 +15,7 @@ project_root = os.path.dirname(current_dir)
 # 3. 把项目根目录加入到 Python 的搜索路径中
 sys.path.append(project_root)
 
-from model.GraphQNetwork import GraphQNetwork
+from agents.GraphQNetwork import GraphQNetwork
 
 
 # ==========================================
@@ -619,6 +619,49 @@ class TrafficPowerEnv:
                 if pc > 0:
                     data.x[station.traffic_node_id, 2] += pc
         return data
+
+    def get_action_mask(self, ev):
+        """
+        无效动作掩码 (Action Mask)：基于物理约束判断每个充电站是否可达。
+
+        掩码规则 (任一条件成立则标记为无效):
+          1. 不可达：EV 当前节点到该站无路径
+          2. SOC 不足：EV 剩余电量不足以支撑到达该站的行驶距离
+             (行驶每 step 消耗约 2 SOC，按最短路径跳数估算)
+          3. SOC 上限：EV 当前 SOC >= 95%，无需充电（所有站均无效 → 回退为全有效）
+
+        Returns:
+            torch.Tensor: shape [1, num_stations]，True=有效 / False=无效
+        """
+        num_actions = len(self.stations)
+        mask = torch.ones(1, num_actions, dtype=torch.bool)
+
+        for i, station in enumerate(self.stations):
+            # 规则 1: 路径可达性
+            if not nx.has_path(self.traffic_graph, ev.curr_node, station.traffic_node_id):
+                mask[0, i] = False
+                continue
+
+            # 规则 2: SOC 够不够走到目标站
+            try:
+                path_len = nx.shortest_path_length(
+                    self.traffic_graph, ev.curr_node,
+                    station.traffic_node_id,
+                )
+                # 每跳约消耗 2 SOC，留 2 SOC 安全余量
+                soc_needed = path_len * 2.0 + 2.0
+                if ev.soc < soc_needed:
+                    mask[0, i] = False
+                    continue
+            except nx.NetworkXNoPath:
+                mask[0, i] = False
+                continue
+
+        # 安全回退：若所有动作均被掩码，则全部放开（避免死锁）
+        if not mask.any():
+            mask.fill_(True)
+
+        return mask
 
     def step(self, actions):
         self.time_step += 1

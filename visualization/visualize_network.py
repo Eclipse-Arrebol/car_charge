@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import networkx as nx
 
-from simEvn.Traffic import TrafficPowerEnv
+from env.Traffic import TrafficPowerEnv
 
 
 class NetworkVisualizer:

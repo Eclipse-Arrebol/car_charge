@@ -18,8 +18,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from simEvn.Traffic import TrafficPowerEnv
-from simEvn.RealTrafficEnv import RealTrafficEnv
+from env.Traffic import TrafficPowerEnv
+from env.RealTrafficEnv import RealTrafficEnv
 from train import DQNAgent
 from evaluation.metrics import Evaluator
 
@@ -28,7 +28,8 @@ from evaluation.metrics import Evaluator
 REAL_MAP_MAX_NODES = 9999
 
 
-def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_map=True):
+def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real_map=True,
+                   model_file=None):
     """
     运行评估。
 
@@ -37,6 +38,7 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_
         steps_per_episode: 每轮步数
         use_random:        True -> 随机策略基线;  False -> 加载已训练模型
         use_real_map:      True -> 使用真实路网 (如珠江新城); False -> 使用 3x3 网格
+        model_file:        指定 checkpoints/ 下的权重文件名，None 时自动选择
     """
     # 1. 环境初始化
     if use_real_map:
@@ -82,8 +84,11 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_
         )
         
         # 根据是否是真实路网，尝试加载对应的权重文件
-        model_name = "trained_dqn_real.pth" if use_real_map else "trained_dqn.pth"
-        model_path = os.path.join(project_root, "model", model_name)
+        if model_file is not None:
+            model_name = model_file
+        else:
+            model_name = "trained_dqn_real.pth" if use_real_map else "trained_dqn.pth"
+        model_path = os.path.join(project_root, "checkpoints", model_name)
         
         if os.path.exists(model_path):
             agent.load_model(model_path)
@@ -163,36 +168,63 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=True, use_real_
     return report
 
 
+def _compare_table(reports: dict):
+    """打印多策略对比表，reports = {策略名: report_dict}"""
+    names = list(reports.keys())
+    valid = {n: r for n, r in reports.items() if r is not None}
+    if len(valid) < 2:
+        return
+    baseline_name, baseline = next(iter(valid.items()))
+    keys = list(baseline.items())
+    print("\n" + "=" * 80)
+    print(f"  多策略对比（基线: {baseline_name}）")
+    print("=" * 80)
+    header = f"  {'指标':<33}" + "".join(f"  {n:>12}" for n in valid)
+    print(header)
+    print("-" * 80)
+    for k, base_val in keys:
+        row = f"  {k:<33}"
+        for n, r in valid.items():
+            val = r[k]
+            if n == baseline_name:
+                row += f"  {val:>12.2f}"
+            else:
+                diff = val - base_val
+                pct = diff / max(abs(base_val), 0.01) * 100
+                tag = "↑" if diff < 0 else ("↓" if diff > 0 else "=")
+                row += f"  {val:>8.2f}{tag}{pct:+.0f}%"
+        print(row)
+
+
 if __name__ == "__main__":
     # 配置是否使用真实路网(珠江新城.graphml) 或 3x3网格
     USE_REAL_MAP = True
     EPISODES = 5
     STEPS = 100
-    
+
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
 
     print("=" * 62)
-    print("  【1/2】随机策略基线")
+    print("  【1/3】随机策略基线")
     print("=" * 62)
-    random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS, use_random=True, use_real_map=USE_REAL_MAP)
+    random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
+                                   use_random=True, use_real_map=USE_REAL_MAP)
 
-    print("\n\n")
+    print("\n")
     print("=" * 62)
-    print("  【2/2】DQN 策略评估")
+    print("  【2/3】DQN 策略评估")
     print("=" * 62)
-    dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS, use_random=False, use_real_map=USE_REAL_MAP)
+    dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
+                                use_random=False, use_real_map=USE_REAL_MAP,
+                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth")
 
-    # 对比表
-    if random_report and dqn_report:
-        print("\n" + "=" * 62)
-        print("  DQN vs Random 对比")
-        print("=" * 62)
-        for k in random_report:
-            r_val = random_report[k]
-            d_val = dqn_report[k]
-            diff = d_val - r_val
-            pct = diff / max(abs(r_val), 0.01) * 100
-            tag = "DQN更优" if diff < 0 else ("Random更优" if diff > 0 else "持平")
-            print(f"  {k:35s}: Random={r_val:10.2f}  DQN={d_val:10.2f}  "
-                  f"diff={diff:+8.2f} ({pct:+.1f}%) {tag}")
+    print("\n")
+    print("=" * 62)
+    print("  【3/3】联邦 DQN 策略评估")
+    print("=" * 62)
+    fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
+                                use_random=False, use_real_map=USE_REAL_MAP,
+                                model_file="trained_federated_dqn_real.pth")
+
+    _compare_table({"Random": random_report, "DQN": dqn_report, "FedDQN": fed_report})

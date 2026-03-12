@@ -7,7 +7,7 @@
 用法示例：
     python visualization/visualize_simulation_3d.py --policy dqn --steps 120
     python visualization/visualize_simulation_3d.py --policy heuristic --steps 100
-    python visualization/visualize_simulation_3d.py --policy dqn --save visualization/results/sim2d_map.gif
+    python visualization/visualize_simulation_3d.py --policy dqn --save results/sim2d_map.gif
     python visualization/visualize_simulation_3d.py --policy dqn --filter-long-edges --long-edge-quantile 0.995
 """
 
@@ -27,8 +27,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from simEvn.Traffic import TrafficPowerEnv
-from simEvn.RealTrafficEnv import RealTrafficEnv
+from env.Traffic import TrafficPowerEnv
+from env.RealTrafficEnv import RealTrafficEnv
 from train import DQNAgent
 
 
@@ -207,9 +207,9 @@ def run_map_animation(
 
     agent = None
     if policy == "dqn":
-        model_path = os.path.join(project_root, "model", "trained_dqn_real.pth")
+        model_path = os.path.join(project_root, "checkpoints", "trained_dqn_real.pth")
         if not use_real_map:
-            model_path = os.path.join(project_root, "model", "trained_dqn.pth")
+            model_path = os.path.join(project_root, "checkpoints", "trained_dqn.pth")
 
         num_actions = getattr(env, "num_stations", 2)
         station_node_ids = getattr(env, "station_node_ids", [0, 8])
@@ -405,7 +405,7 @@ def parse_args():
     parser.add_argument("--steps", type=int, default=120, help="动画步数")
     parser.add_argument("--interval", type=int, default=250, help="帧间隔 ms")
     parser.add_argument("--policy", choices=["dqn", "heuristic", "random"], default="dqn")
-    parser.add_argument("--save", type=str, default=None, help="保存路径，如 visualization/results/sim2d_map.gif")
+    parser.add_argument("--save", type=str, default=None, help="保存路径，如 results/sim2d_map.gif")
     parser.add_argument("--grid", action="store_true", help="使用基础网格环境（默认真实路网）")
     parser.add_argument("--graphml", type=str, default=None, help="真实路网 graphml 文件路径")
     parser.add_argument("--trail-len", type=int, default=20, help="轨迹尾迹长度（帧）")
