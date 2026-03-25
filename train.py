@@ -148,6 +148,24 @@ class DQNAgent:
                     f"使用当前环境站点: {cur_station_ids.tolist()}"
                 )
 
+        # 兼容旧版 checkpoint：若输入特征从 10 维扩展到 14 维，
+        # 自动扩展第一层输入权重，保留原有 10 维参数，新增维度置 0。
+        cur_state = self.policy_net.state_dict()
+        for key in ("conv1.lin_l.weight", "conv1.lin_r.weight"):
+            if key in state_dict and key in cur_state:
+                old_w = state_dict[key]
+                new_w = cur_state[key]
+                if old_w.shape != new_w.shape and old_w.ndim == 2 and new_w.ndim == 2:
+                    if old_w.shape[0] == new_w.shape[0] and old_w.shape[1] < new_w.shape[1]:
+                        upgraded = new_w.clone()
+                        upgraded.zero_()
+                        upgraded[:, :old_w.shape[1]] = old_w
+                        state_dict[key] = upgraded
+                        print(
+                            f"[load_model] 升级旧版输入层权重: {key} "
+                            f"{tuple(old_w.shape)} -> {tuple(new_w.shape)}"
+                        )
+
         # strict=False：旧 checkpoint 缺少 station_node_ids buffer 时不报错，
         # 该 buffer 会保留构造函数中设定的默认值
         missing, unexpected = self.policy_net.load_state_dict(
@@ -167,7 +185,7 @@ class DQNAgent:
 # ==========================================
 if __name__ == "__main__":
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=10, num_actions=2)  # 10个特征(含SOC+距离), 2个充电站
+    agent = DQNAgent(num_features=14, num_actions=2)  # 14个特征(含时间/服务/成本), 2个充电站
 
     episodes = 800
     batch_size = 64
@@ -195,42 +213,10 @@ if __name__ == "__main__":
                 action = agent.select_action(ev_state, action_mask=action_mask)
                 actions[ev.id] = action
 
-                # ── 利用率导向的塑形奖励 ──
-                target_st = env.stations[action]
-                other_st  = env.stations[1 - action]
-                eff_target = (len(target_st.queue) + len(target_st.connected_evs)
-                              + pending_counts.get(action, 0))
-                eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
-                              + pending_counts.get(1 - action, 0))
-
-                try:
-                    dist_target = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_target = 5
-                try:
-                    dist_other = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_other = 5
-
-                # 归一化距离 (缩小权重，仅做平局裁决)
-                max_dist = max(dist_target + dist_other, 1)
-                norm_dist_target = dist_target / max_dist * 5.0
-
-                # 利用率：0~1（未满）→ 1+（超满），比 excess 更敏感
-                util_target = eff_target / max(1, target_st.num_chargers)
-                util_other  = eff_other  / max(1, other_st.num_chargers)
-
-                # ★ 核心信号：利用率差值 × 大权重（拥堵主导决策）
-                per_ev_r = -(util_target - util_other) * 20.0
-                # 距离只做辅助（权重 1.5，远小于拥堵 20）
-                per_ev_r -= norm_dist_target * 1.5
-                # 电价偏好
-                per_ev_r += (other_st.current_price - target_st.current_price) * 1.0
-                # 硬性惩罚：目标站满载且对侧有空位
-                if util_target >= 1.0 and util_other < 1.0:
-                    per_ev_r -= 30.0
+                metrics = env.estimate_action_metrics(ev, action, pending_counts)
+                per_ev_r = -metrics["generalized_cost"]
+                per_ev_r -= 6.0 * metrics["queue_time_h"]
+                per_ev_r -= 2.0 * metrics["trip_time_h"]
 
                 ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask))
                 pending_counts[action] += 1
@@ -238,11 +224,12 @@ if __name__ == "__main__":
             # --- B. 环境执行 ---
             _, reward, done, info = env.step(actions)
 
-            # --- C. 经验存储：塑形奖励 + 全局奖励混合 ---
-            # 全局奖励包含队列均衡+等待惩罚，按参与人数均摊
+            # --- C. 经验存储：动作成本 + 全局联合目标混合 ---
             global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
             for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
-                mixed_r = per_ev_r + global_bonus
+                realized = info["decision_costs"].get(ev.id, {})
+                realized_cost = realized.get("generalized_cost", 0.0)
+                mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
                 next_ev_state = env.get_graph_state_for_ev(ev)
                 agent.store_transition(ev_state, act, mixed_r, next_ev_state, action_mask=mask)
 

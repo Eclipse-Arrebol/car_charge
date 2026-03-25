@@ -15,7 +15,7 @@
         num_evs=10,
     )
     agent = DQNAgent(
-        num_features=9,
+        num_features=14,
         num_actions=env.num_stations,
         station_node_ids=env.station_node_ids,
         num_nodes_per_graph=env.num_nodes,
@@ -153,6 +153,8 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.bpr_beta = 4.0
         self.edge_active_counts = {}
         self.tou_multiplier = 1.0
+        self.price_noise = 0.0
+        self.prev_total_load = 0.0
         self.edge_index = self._build_edge_index()
 
         print(f"[RealTrafficEnv] nodes={self.num_nodes}, "
@@ -188,6 +190,8 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.step_duration_h = 1.0
         self.edge_active_counts = {}
         self.tou_multiplier = 1.0
+        self.price_noise = 0.0
+        self.prev_total_load = 0.0
         return self.get_graph_state()
 
 

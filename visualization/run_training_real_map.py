@@ -45,8 +45,9 @@ NUM_STATS = 2       # 充电站数量
 EPISODES         = 200  # 增加训练轮次
 STEPS_PER_EP     = 100
 BATCH_SIZE       = 64
-FED_LOCAL_STEPS  = 5    # 每个联邦轮次中，各客户端本地训练步数
+FED_LOCAL_STEPS  = 1    # 减小本地训练步数，降低客户端漂移
 FED_ROUNDS_PER_EP = 1   # 每个 episode 结束后执行一次联邦聚合
+AGGREGATION_INTERVAL = 10  # episode 内每隔若干步执行一次聚合
 # ============================================================
 
 
@@ -84,20 +85,22 @@ def run_training_real():
     # ── 联邦学习架构初始化 ──
     # 全局服务器
     fed_server = FederatedServer(
-        num_features=10,
+        num_features=14,
         num_actions=env.num_stations,
         station_node_ids=env.station_node_ids,
         num_nodes_per_graph=env.num_nodes,
+        aggregation_momentum=0.35,
     )
 
     # 每个充电站区域创建一个联邦客户端
     for i in range(env.num_stations):
         client = FederatedClient(
             client_id=i,
-            num_features=10,
+            num_features=14,
             num_actions=env.num_stations,
             station_node_ids=env.station_node_ids,
             num_nodes_per_graph=env.num_nodes,
+            proximal_mu=1e-4,
         )
         fed_server.register_client(client)
 
@@ -128,58 +131,37 @@ def run_training_real():
             actions = {}
             ev_dispatch = []       # (ev, ev_state, action, shaped_reward, action_mask, client_id)
             pending_counts = {s.id: 0 for s in env.stations}
+            client_loads = {client.client_id: 0 for client in fed_server.clients}
 
             for ev in urgent_evs:
                 ev_state = env.get_graph_state_for_ev(ev, pending_counts)
                 action_mask = env.get_action_mask(ev)
 
                 # 选择离 EV 最近的充电站对应的客户端来做决策
-                client_id = _nearest_station_client(env, ev)
+                client_id = _select_client_for_ev(env, ev, client_loads)
                 client = fed_server.clients[client_id]
 
                 action = client.select_action(ev_state, action_mask=action_mask)
                 actions[ev.id] = action
 
                 # ── 利用率导向的塑形奖励 ──
-                target_st = env.stations[action]
-                other_st  = env.stations[1 - action]
-                eff_target = (len(target_st.queue) + len(target_st.connected_evs)
-                              + pending_counts.get(action, 0))
-                eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
-                              + pending_counts.get(1 - action, 0))
-
-                try:
-                    dist_target = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_target = 5
-                try:
-                    dist_other = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_other = 5
-
-                max_dist = max(dist_target + dist_other, 1)
-                norm_dist_target = dist_target / max_dist * 5.0
-
-                util_target = eff_target / max(1, target_st.num_chargers)
-                util_other  = eff_other  / max(1, other_st.num_chargers)
-
-                per_ev_r = -(util_target - util_other) * 20.0
-                per_ev_r -= norm_dist_target * 1.5
-                per_ev_r += (other_st.current_price - target_st.current_price) * 1.0
-                if util_target >= 1.0 and util_other < 1.0:
-                    per_ev_r -= 30.0
+                metrics = env.estimate_action_metrics(ev, action, pending_counts)
+                per_ev_r = -metrics["generalized_cost"]
+                per_ev_r -= 6.0 * metrics["queue_time_h"]
+                per_ev_r -= 2.0 * metrics["trip_time_h"]
 
                 ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask, client_id))
                 pending_counts[action] += 1
+                client_loads[client_id] += 1
 
             next_state, reward, _, info = env.step(actions)
 
             # 经验存储到各自的联邦客户端
             global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
             for ev, ev_state, act, per_ev_r, mask, cid in ev_dispatch:
-                mixed_r = per_ev_r + global_bonus
+                realized = info["decision_costs"].get(ev.id, {})
+                realized_cost = realized.get("generalized_cost", 0.0)
+                mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
                 next_ev_state = env.get_graph_state_for_ev(ev)
                 fed_server.clients[cid].store_transition(
                     ev_state, act, mixed_r, next_ev_state, action_mask=mask
@@ -188,6 +170,11 @@ def run_training_real():
             # 各客户端本地训练
             for client in fed_server.clients:
                 client.local_train(BATCH_SIZE, num_steps=1)
+
+            # 更频繁地聚合，减少本地模型在长时间局部更新后发生漂移。
+            if (_ + 1) % AGGREGATION_INTERVAL == 0:
+                fed_server.aggregate()
+                fed_server.distribute_global_model()
 
             total_reward   += reward
             total_realized += info.get("realized_power", 0.0)
@@ -230,18 +217,21 @@ def run_training_real():
     print(f"\n联邦训练完成！全局模型已保存: {save_path}")
 
 
-def _nearest_station_client(env, ev):
-    """返回离 EV 最近的充电站索引，用作该 EV 的联邦客户端 ID"""
+def _select_client_for_ev(env, ev, client_loads):
+    """按“距离 + 当前客户端负载”联合分配决策客户端，缓解样本极端非IID。"""
     best_id = 0
-    best_dist = float('inf')
+    best_score = float('inf')
     for i, station in enumerate(env.stations):
         try:
-            d = nx.shortest_path_length(
-                env.traffic_graph, ev.curr_node, station.traffic_node_id)
+            dist = nx.shortest_path_length(
+                env.traffic_graph, ev.curr_node, station.traffic_node_id
+            )
         except nx.NetworkXNoPath:
-            d = float('inf')
-        if d < best_dist:
-            best_dist = d
+            dist = float('inf')
+
+        score = client_loads.get(i, 0) * 2.0 + dist
+        if score < best_score:
+            best_score = score
             best_id = i
     return best_id
 

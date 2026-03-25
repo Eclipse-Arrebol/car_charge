@@ -18,7 +18,7 @@ from visualization.visualize_training import TrainingVisualizer
 
 def run_training(episodes=500, steps_per_episode=100, batch_size=64):
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=10, num_actions=2)
+    agent = DQNAgent(num_features=14, num_actions=2)
     viz = TrainingVisualizer()
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + 凸优化调度 + 可视化)...")
@@ -47,39 +47,24 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64):
                 action = agent.select_action(ev_state, action_mask=action_mask)
                 actions[ev.id] = action
 
-                # Per-EV 奖励：综合行驶距离 + 等待时间 + 电价
-                target_st = env.stations[action]
-                other_st  = env.stations[1 - action]
-                eff_target = (len(target_st.queue) + len(target_st.connected_evs)
-                              + pending_counts.get(action, 0))
-                eff_other  = (len(other_st.queue) + len(other_st.connected_evs)
-                              + pending_counts.get(1 - action, 0))
-                try:
-                    dist_target = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, target_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_target = 5
-                try:
-                    dist_other = nx.shortest_path_length(
-                        env.traffic_graph, ev.curr_node, other_st.traffic_node_id)
-                except nx.NetworkXNoPath:
-                    dist_other = 5
-                excess_target = max(0, eff_target - target_st.num_chargers)
-                excess_other  = max(0, eff_other  - other_st.num_chargers)
-                cost_target = dist_target + excess_target * 3.0
-                cost_other  = dist_other  + excess_other  * 3.0
-                per_ev_r = (cost_other - cost_target) * 4.0
-                per_ev_r -= cost_target * 2.0
-                per_ev_r += (other_st.current_price - target_st.current_price) * 1.5
+                metrics = env.estimate_action_metrics(ev, action, pending_counts)
+                per_ev_r = -metrics["generalized_cost"]
+                per_ev_r -= 6.0 * metrics["queue_time_h"]
+                per_ev_r -= 2.0 * metrics["trip_time_h"]
 
                 ev_transitions.append((ev_state, action, per_ev_r, action_mask))
                 pending_counts[action] += 1   # 后续EV能看到前面的分配
 
             next_global_state, reward, _, info = env.step(actions)
 
-            # 存储每辆EV的独立经验（纯 per-EV 路由奖励）
-            for ev_state, act, per_ev_r, mask in ev_transitions:
-                agent.store_transition(ev_state, act, per_ev_r, next_global_state, action_mask=mask)
+            # 存储每辆EV的独立经验（局部动作成本 + 全局联合目标）
+            global_bonus = reward / max(1, len(ev_transitions)) * 0.3
+            for idx, (ev_state, act, per_ev_r, mask) in enumerate(ev_transitions):
+                ev = urgent_evs[idx]
+                realized = info["decision_costs"].get(ev.id, {})
+                realized_cost = realized.get("generalized_cost", 0.0)
+                mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
+                agent.store_transition(ev_state, act, mixed_r, next_global_state, action_mask=mask)
 
             if ev_transitions:
                 agent.replay(batch_size)

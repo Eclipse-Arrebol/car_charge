@@ -7,6 +7,7 @@ EV 充电调度强化学习系统 — 统一入口
     python main.py train-viz       # 基础训练 + 可视化
     python main.py evaluate        # 评估已训练模型
     python main.py download-map    # 下载真实路网地图
+     python visualization/visualize_simulation_3d.py --policy dqn --steps 120 --show-edges
 """
 
 import argparse
@@ -18,10 +19,9 @@ def cmd_train(_args):
     """基础 DQN 训练（合成路网）"""
     from train import DQNAgent
     from env.Traffic import TrafficPowerEnv
-    import torch
 
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=10, num_actions=2)
+    agent = DQNAgent(num_features=14, num_actions=2)
 
     episodes = 800
     batch_size = 64
@@ -33,16 +33,30 @@ def cmd_train(_args):
             urgent_evs = [ev for ev in env.evs if ev.status == "IDLE" and ev.soc < 30.0]
             urgent_evs.sort(key=lambda ev: ev.soc)
             actions = {}
+            ev_dispatch = []
             pending = {s.id: 0 for s in env.stations}
             for ev in urgent_evs:
                 state = env.get_graph_state_for_ev(ev, pending)
                 mask = env.get_action_mask(ev)
                 action = agent.select_action(state, action_mask=mask)
                 actions[ev.id] = action
+                metrics = env.estimate_action_metrics(ev, action, pending)
+                per_ev_r = -metrics["generalized_cost"]
+                per_ev_r -= 6.0 * metrics["queue_time_h"]
+                per_ev_r -= 2.0 * metrics["trip_time_h"]
+                ev_dispatch.append((ev, state, action, per_ev_r, mask))
                 pending[action] = pending.get(action, 0) + 1
-            _, reward, _, _ = env.step(actions)
+            _, reward, _, info = env.step(actions)
+            global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
+            for ev, state, action, per_ev_r, mask in ev_dispatch:
+                realized = info["decision_costs"].get(ev.id, {})
+                realized_cost = realized.get("generalized_cost", 0.0)
+                mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
+                next_state = env.get_graph_state_for_ev(ev)
+                agent.store_transition(state, action, mixed_r, next_state, action_mask=mask)
+            if ev_dispatch or len(agent.memory) >= batch_size:
+                agent.replay(batch_size)
             total_reward += reward
-        agent.replay(batch_size)
         if (e + 1) % 50 == 0:
             print(f"Episode {e+1}/{episodes}  reward={total_reward:.1f}  ε={agent.epsilon:.3f}")
     agent.save_model()

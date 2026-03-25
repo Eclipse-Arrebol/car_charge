@@ -37,10 +37,11 @@ class FederatedClient:
 
     def __init__(self, client_id, num_features, num_actions,
                  station_node_ids=None, num_nodes_per_graph=9,
-                 lr=0.0003, memory_size=20000):
+                 lr=0.0003, memory_size=20000, proximal_mu=1e-4):
         self.client_id = client_id
         self.num_actions = num_actions
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.proximal_mu = proximal_mu
 
         # 本地策略网络 + 目标网络
         self.policy_net = GraphQNetwork(
@@ -71,6 +72,7 @@ class FederatedClient:
 
         # 本轮训练的样本数（用于 FedAvg 加权）
         self.num_samples_this_round = 0
+        self.global_anchor_params = None
 
     def load_global_model(self, global_state_dict):
         """从全局服务器加载模型参数"""
@@ -84,6 +86,11 @@ class FederatedClient:
                 filtered[k] = v
         self.policy_net.load_state_dict(filtered)
         self.target_net.load_state_dict(filtered)
+        self.global_anchor_params = {
+            name: tensor.detach().clone().to(self.device)
+            for name, tensor in self.policy_net.state_dict().items()
+            if torch.is_floating_point(tensor)
+        }
 
     def get_model_params(self):
         """返回本地模型参数（用于上传给服务器聚合）"""
@@ -147,6 +154,17 @@ class FederatedClient:
                 target_q = reward_batch + 0.99 * next_q
 
             loss = F.mse_loss(curr_q, target_q)
+
+            # FedProx: 约束本地模型不要偏离最近一次下发的全局模型过远，
+            # 缓解非IID样本导致的客户端漂移。
+            if self.global_anchor_params is not None and self.proximal_mu > 0:
+                prox_term = torch.zeros(1, device=self.device)
+                for name, param in self.policy_net.named_parameters():
+                    anchor = self.global_anchor_params.get(name, None)
+                    if anchor is not None:
+                        prox_term = prox_term + torch.sum((param - anchor) ** 2)
+                loss = loss + 0.5 * self.proximal_mu * prox_term
+
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
@@ -179,8 +197,10 @@ class FederatedServer:
     """
 
     def __init__(self, num_features, num_actions,
-                 station_node_ids=None, num_nodes_per_graph=9):
+                 station_node_ids=None, num_nodes_per_graph=9,
+                 aggregation_momentum=0.35):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.aggregation_momentum = aggregation_momentum
 
         # 全局模型（仅用于聚合和下发，不直接训练）
         self.global_model = GraphQNetwork(
@@ -231,7 +251,19 @@ class FederatedServer:
                 for i in range(len(client_params))
             ).to(client_params[0][key].dtype)
 
-        self.global_model.load_state_dict(aggregated)
+        # 聚合后做一次动量平滑，减少不同客户端参数直接平均带来的震荡。
+        smoothed = OrderedDict()
+        current_global = self.global_model.state_dict()
+        for key, value in aggregated.items():
+            if key == 'station_node_ids' or not torch.is_floating_point(value):
+                smoothed[key] = value
+                continue
+            smoothed[key] = (
+                (1.0 - self.aggregation_momentum) * current_global[key].float()
+                + self.aggregation_momentum * value.float()
+            ).to(current_global[key].dtype)
+
+        self.global_model.load_state_dict(smoothed)
 
         # 重置各客户端的轮次样本计数
         for client in self.clients:

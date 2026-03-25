@@ -27,6 +27,11 @@ class EV:
         self.curr_node = start_node
         self.target_station_idx = None
         self.soc = random.uniform(20.0, 50.0)
+        self.target_soc = 0.95
+        self.battery_capacity_kwh = 60.0
+        self.charge_efficiency = 0.92
+        self.time_value = 35.0
+        self.drive_kwh_per_km = 0.18
         self.status = "IDLE"
         self.path = []
         self.last_traversed_nodes = []   # 本 step 内实际经过并到达的节点序列
@@ -203,19 +208,79 @@ class ChargingStation:
 
         self.base_price = 1.0
         self.current_price = 1.0
+        self.service_price_markup = 0.15
+        self.price_noise = 0.0
 
         # 上一步的优化结果，供外部读取
         self.last_power_allocation = {}   # {ev_id: power_kW}
         self.last_total_load = 0.0        # 站级总负荷
 
-    def update_price(self, tou_multiplier=1.0):
+    def update_price(self, tou_multiplier=1.0, price_noise=0.0):
         """
-        动态电价 = 基础电价 × 分时系数 + 拥堵附加费
-        同时考虑: 峰谷电价 + 站内拥堵
+        动态电价 = TOU 基准电价 × (1 + 扰动) + 站端服务附加费 + 拥堵附加费
         """
         congestion = len(self.queue) + len(self.connected_evs)
-        self.current_price = self.base_price * tou_multiplier + congestion * 0.5
+        self.price_noise = float(price_noise)
+        energy_price = self.base_price * tou_multiplier * (1.0 + self.price_noise)
+        congestion_markup = 0.08 * congestion
+        self.current_price = max(
+            0.1,
+            energy_price + self.service_price_markup + congestion_markup,
+        )
         return self.current_price
+
+    def estimate_queue_wait_hours(self, incoming_count=0):
+        total_waiting = len(self.queue) + max(0, int(incoming_count))
+        if total_waiting <= 0:
+            return 0.0
+
+        residual_times = []
+        for ev in self.connected_evs:
+            power = max(
+                1e-6,
+                self.last_power_allocation.get(ev.id, self.max_charger_power * 0.7)
+            )
+            target_energy = max(
+                0.0,
+                (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+            )
+            residual_times.append(target_energy / max(1e-6, ev.charge_efficiency * power))
+
+        residual_head = min(residual_times) if residual_times else 0.0
+        avg_charge_h = self.estimate_average_charge_hours()
+        queue_rounds = total_waiting / max(1, self.num_chargers)
+        return residual_head + queue_rounds * avg_charge_h
+
+    def estimate_average_charge_hours(self):
+        samples = self.queue + self.connected_evs
+        if not samples:
+            return max(0.25, 0.7 * self.max_charger_power / max(1e-6, self.max_charger_power))
+
+        hours = []
+        for ev in samples:
+            remaining_energy = max(
+                0.0,
+                (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+            )
+            hours.append(
+                remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
+            )
+        return max(0.1, float(np.mean(hours)))
+
+    def estimate_charge_time_hours(self, ev):
+        remaining_energy = max(
+            0.0,
+            (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+        )
+        return remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
+
+    def estimate_charge_cost(self, ev):
+        remaining_energy = max(
+            0.0,
+            (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+        )
+        billed_energy = remaining_energy / max(1e-6, ev.charge_efficiency)
+        return self.current_price * billed_energy
 
     # --------------------------------------------------
     # 核心方法: 凸优化功率分配
@@ -290,7 +355,7 @@ class ChargingStation:
     # --------------------------------------------------
     # 每一步的调度逻辑 (替换旧的固定 +5.0 逻辑)
     # --------------------------------------------------
-    def step(self, tou_multiplier=1.0):
+    def step(self, tou_multiplier=1.0, price_noise=0.0):
         """
         新逻辑:
           1. 把排队的车填入空余充电桩 (插枪)
@@ -331,7 +396,7 @@ class ChargingStation:
             self.connected_evs.remove(ev)
 
         # 4. 更新动态电价 (含分时电价)
-        self.update_price(tou_multiplier)
+        self.update_price(tou_multiplier, price_noise=price_noise)
 
         return realized_power
 
@@ -365,6 +430,8 @@ class TrafficPowerEnv:
         # 电网物理模型
         self.power_grid = PowerGrid()
         self.tou_multiplier = 1.0             # 当前分时电价系数
+        self.price_noise = 0.0
+        self.prev_total_load = 0.0
 
         # 预先构建图结构
         self.edge_index = self._build_edge_index()
@@ -383,6 +450,8 @@ class TrafficPowerEnv:
         self.time_step = 0
         self.power_grid = PowerGrid()
         self.tou_multiplier = 1.0
+        self.price_noise = 0.0
+        self.prev_total_load = 0.0
         self.edge_active_counts = {}
         return self.get_graph_state()
 
@@ -551,15 +620,62 @@ class TrafficPowerEnv:
         self.edge_attr = torch.tensor(edge_attr_list, dtype=torch.float)
         return edge_index
 
+    def _estimate_ev_station_metrics(self, ev, station, pending_counts=None):
+        pending = 0 if pending_counts is None else pending_counts.get(station.id, 0)
+        try:
+            path = nx.shortest_path(
+                self.traffic_graph,
+                source=ev.curr_node,
+                target=station.traffic_node_id,
+                weight=self._travel_time_weight,
+            )
+            trip_time_h = 0.0
+            trip_dist_km = 0.0
+            for u, v in zip(path[:-1], path[1:]):
+                length_m, _, travel_h = self.get_edge_travel_profile(u, v)
+                trip_time_h += travel_h
+                trip_dist_km += length_m / 1000.0
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            trip_time_h = 24.0
+            trip_dist_km = 999.0
+
+        queue_time_h = station.estimate_queue_wait_hours(incoming_count=pending)
+        charge_time_h = station.estimate_charge_time_hours(ev)
+        service_time_h = queue_time_h + charge_time_h
+        charge_cost = station.estimate_charge_cost(ev)
+        travel_energy_cost = trip_dist_km * ev.drive_kwh_per_km * station.current_price
+        generalized_cost = ev.time_value * (trip_time_h + service_time_h) + charge_cost + travel_energy_cost
+
+        return {
+            "trip_time_h": trip_time_h,
+            "trip_dist_km": trip_dist_km,
+            "queue_time_h": queue_time_h,
+            "charge_time_h": charge_time_h,
+            "service_time_h": service_time_h,
+            "charge_cost": charge_cost,
+            "travel_energy_cost": travel_energy_cost,
+            "generalized_cost": generalized_cost,
+            "price": station.current_price,
+            "grid_load_ratio": station.last_total_load / max(1.0, station.max_grid_power),
+        }
+
+    def estimate_action_metrics(self, ev, station_id, pending_counts=None):
+        station = self.stations[station_id]
+        return self._estimate_ev_station_metrics(ev, station, pending_counts=pending_counts)
+
     def get_graph_state(self):
-        """返回 PyG 的 Data 对象 (全局状态, 10 维特征)"""
+        """返回 PyG 的 Data 对象 (全局状态, 14 维特征)"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=10:
+        # 特征维度=14:
         #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
         #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
         #   [8] 请求EV的SOC/100 (默认0, 由 get_graph_state_for_ev 设置)
-        #   [9] 站到请求EV的距离反函数 (默认0, 由 get_graph_state_for_ev 设置)
-        x = torch.zeros((num_nodes, 10), dtype=torch.float)
+        #   [9] 站到请求EV的距离反函数
+        #   [10] 到站前旅行时间(小时)
+        #   [11] 到站后服务时间(小时)
+        #   [12] 广义出行成本(归一化)
+        #   [13] 实时价格扰动系数
+        x = torch.zeros((num_nodes, 14), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
@@ -567,6 +683,7 @@ class TrafficPowerEnv:
 
         # Feature 7: 分时电价系数 — 全局信号，所有节点共享
         x[:, 7] = self.tou_multiplier
+        x[:, 13] = self.price_noise
 
         # Feature 1-6: 充电站特有信息
         for station in self.stations:
@@ -600,17 +717,13 @@ class TrafficPowerEnv:
         # Feature[8]: 请求 EV 的 SOC (归一化), 同时标识 EV 所在节点
         data.x[ev.curr_node, 8] = ev.soc / 100.0
 
-        # Feature[9]: 各站节点到请求 EV 的归一化距离信息
+        # Feature[9]-[12]: 各站节点对当前 EV 的一体化成本感知
         for station in self.stations:
-            try:
-                dist = nx.shortest_path_length(
-                    self.traffic_graph, ev.curr_node,
-                    station.traffic_node_id,
-                    weight=self._travel_time_weight,
-                )
-            except nx.NetworkXNoPath:
-                dist = self.traffic_graph.number_of_nodes()
-            data.x[station.traffic_node_id, 9] = 1.0 / (1.0 + dist)
+            metrics = self._estimate_ev_station_metrics(ev, station, pending_counts=pending_counts)
+            data.x[station.traffic_node_id, 9] = 1.0 / (1.0 + metrics["trip_time_h"])
+            data.x[station.traffic_node_id, 10] = metrics["trip_time_h"]
+            data.x[station.traffic_node_id, 11] = metrics["service_time_h"]
+            data.x[station.traffic_node_id, 12] = metrics["generalized_cost"] / 100.0
 
         # 将本步内的 pending 分配叠加到排队特征上
         if pending_counts:
@@ -644,13 +757,9 @@ class TrafficPowerEnv:
 
             # 规则 2: SOC 够不够走到目标站
             try:
-                path_len = nx.shortest_path_length(
-                    self.traffic_graph, ev.curr_node,
-                    station.traffic_node_id,
-                )
-                # 每跳约消耗 2 SOC，留 2 SOC 安全余量
-                soc_needed = path_len * 2.0 + 2.0
-                if ev.soc < soc_needed:
+                metrics = self._estimate_ev_station_metrics(ev, station)
+                soc_needed = metrics["trip_dist_km"] * ev.drive_kwh_per_km / max(1e-6, ev.battery_capacity_kwh) * 100.0 + 2.0
+                if ev.soc < soc_needed or metrics["trip_time_h"] >= 24.0:
                     mask[0, i] = False
                     continue
             except nx.NetworkXNoPath:
@@ -665,7 +774,17 @@ class TrafficPowerEnv:
 
     def step(self, actions):
         self.time_step += 1
-        grid_loads = {'Grid_A': 0.0, 'Grid_B': 0.0}
+        grid_loads = {station.power_node_id: 0.0 for station in self.stations}
+        decision_metrics = {}
+        pending_counts = {s.id: 0 for s in self.stations}
+
+        urgent_evs = [ev for ev in self.evs if ev.id in actions and ev.status == "IDLE"]
+        urgent_evs.sort(key=lambda item: item.soc)
+        for ev in urgent_evs:
+            station_id = actions[ev.id]
+            metrics = self.estimate_action_metrics(ev, station_id, pending_counts=pending_counts)
+            decision_metrics[ev.id] = metrics
+            pending_counts[station_id] += 1
 
         # --- 1. 车辆状态流转 ---
         for ev in self.evs:
@@ -715,42 +834,33 @@ class TrafficPowerEnv:
 
         # --- 2. 分时电价 ---
         self.tou_multiplier = get_tou_multiplier(self.time_step, self.steps_per_day)
+        self.price_noise = random.uniform(-0.1, 0.1)
 
         # --- 3. 基础设施更新 (凸优化调度) ---
         total_realized_power = 0.0
         for station in self.stations:
-            load = station.step(tou_multiplier=self.tou_multiplier)
+            load = station.step(tou_multiplier=self.tou_multiplier, price_noise=self.price_noise)
             grid_loads[station.power_node_id] += load
             total_realized_power += load
 
         # --- 4. 配电网潮流计算 ---
         self.power_grid.run_power_flow(grid_loads)
 
-        # --- 5. 计算奖励 ---
-        # 设计原则：DQN 只能控制"把 EV 派去哪个站"，
-        # 因此奖励应聚焦于路由质量，而非充电功率（CVXPY 负责功率分配）。
-        reward = 0.0
+        # --- 5. 联合优化目标 → 奖励 ---
+        user_cost = sum(m["generalized_cost"] for m in decision_metrics.values())
+        queue_cost = sum(m["queue_time_h"] for m in decision_metrics.values())
+        grid_cost = sum(st.current_price * st.last_total_load for st in self.stations) + 20.0 * self.power_grid.total_loss
+        fluct_cost = (total_realized_power - self.prev_total_load) ** 2
+        voltage_penalty = 10.0 * len(self.power_grid.voltage_violations)
 
-        # ① 队列均衡惩罚：两站负载越失衡，扣分越多（鼓励分散导流）
-        loads = [len(s.queue) + len(s.connected_evs) for s in self.stations]
-        queue_imbalance = abs(loads[0] - loads[1])
-        reward -= queue_imbalance * 3.0
-
-        # ② 总等待惩罚：排队越多越差
-        total_waiting = sum(len(s.queue) for s in self.stations)
-        reward -= total_waiting * 2.0
-
-        # ③ 充电费用惩罚：在高价站充电越多扣分越多（引导去低价站）
-        for station in self.stations:
-            reward -= station.current_price * len(station.connected_evs) * 0.4
-
-        # ④ 谷时利用奖励：鼓励在电价低时保持较高利用率
-        if self.tou_multiplier < 1.0:
-            max_possible = sum(s.max_grid_power for s in self.stations)
-            reward += (total_realized_power / max(1.0, max_possible)) * 3.0
-
-        # ⑤ 电压越限惩罚
-        reward -= len(self.power_grid.voltage_violations) * 5.0
+        reward = -(
+            0.08 * user_cost +
+            4.0 * queue_cost +
+            0.03 * grid_cost +
+            0.01 * fluct_cost +
+            voltage_penalty
+        )
+        self.prev_total_load = total_realized_power
 
         info = {
             "grid_loads": grid_loads,
@@ -760,6 +870,15 @@ class TrafficPowerEnv:
             "line_losses": self.power_grid.total_loss,
             "voltage_violations": len(self.power_grid.voltage_violations),
             "tou_multiplier": self.tou_multiplier,
+            "price_noise": self.price_noise,
+            "decision_costs": decision_metrics,
+            "objective_terms": {
+                "user_cost": user_cost,
+                "queue_cost": queue_cost,
+                "grid_cost": grid_cost,
+                "fluct_cost": fluct_cost,
+                "voltage_penalty": voltage_penalty,
+            },
         }
 
         return self.get_graph_state(), reward, False, info
