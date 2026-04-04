@@ -73,6 +73,23 @@ def _resolve_scale(command, debug, medium):
     return defaults[command]
 
 
+def _resolve_evaluation_scale(debug, medium):
+    if debug:
+        return {
+            "episodes": 5,
+            "steps": 50,
+        }
+    if medium:
+        return {
+            "episodes": 20,
+            "steps": 200,
+        }
+    return {
+        "episodes": 50,
+        "steps": 1000,
+    }
+
+
 def cmd_train(args):
     """基础 DQN 训练（合成路网）"""
     from train import DQNAgent
@@ -152,10 +169,11 @@ def cmd_evaluate(args):
     """评估已训练模型（随机基线 / DQN / 联邦DQN 三方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
     cfg = _resolve_scale(args.command, args.debug, args.medium)
+    eval_cfg = _resolve_evaluation_scale(args.debug, args.medium)
 
     USE_REAL_MAP = True
-    EPISODES = min(cfg["episodes"], 3)
-    STEPS = min(cfg["steps"], 300)
+    EPISODES = eval_cfg["episodes"]
+    STEPS = eval_cfg["steps"]
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")

@@ -28,7 +28,7 @@ from evaluation.metrics import Evaluator
 REAL_MAP_MAX_NODES = 9999
 
 
-def run_evaluation(episodes=3, steps_per_episode=1000, use_random=False, use_real_map=True,
+def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_real_map=True,
                    model_file=None, num_evs=100):
     """
     运行评估。
@@ -200,7 +200,7 @@ def _compare_table(reports: dict):
 if __name__ == "__main__":
     # 配置是否使用真实路网(珠江新城.graphml) 或 3x3网格
     USE_REAL_MAP = True
-    EPISODES = 5
+    EPISODES = 50
     STEPS = 1000
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
