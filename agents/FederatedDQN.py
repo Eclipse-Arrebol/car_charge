@@ -81,6 +81,7 @@ class FederatedClient:
         # 本轮训练的样本数（用于 FedAvg 加权）
         self.num_samples_this_round = 0
         self.global_anchor_params = None
+        self.verbose = False
 
     def _parameter_mean(self):
         means = []
@@ -114,12 +115,13 @@ class FederatedClient:
             for name, tensor in self.policy_net.state_dict().items()
             if torch.is_floating_point(tensor)
         }
-        opt_state = self.optimizer_debug_state()
-        print(
-            f"[FedClient {self.client_id}] load_global_model "
-            f"param_mean={self._parameter_mean():.6f} "
-            f"lr={opt_state['lr']:.6f} optimizer_state_entries={opt_state['state_entries']}"
-        )
+        if self.verbose:
+            opt_state = self.optimizer_debug_state()
+            print(
+                f"[FedClient {self.client_id}] load_global_model "
+                f"param_mean={self._parameter_mean():.6f} "
+                f"lr={opt_state['lr']:.6f} optimizer_state_entries={opt_state['state_entries']}"
+            )
 
     def get_model_params(self):
         """返回本地模型参数（用于上传给服务器聚合）"""
@@ -206,7 +208,7 @@ class FederatedClient:
             torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
             self.optimizer.step()
             self.local_train_call_count += 1
-            if self.local_train_call_count % 10 == 0:
+            if self.verbose and self.local_train_call_count % 10 == 0:
                 print(
                     f"[FedClient {self.client_id}] local_train "
                     f"step={self.local_train_call_count} loss={loss.item():.6f}"
@@ -239,6 +241,7 @@ class FederatedServer:
                  aggregation_momentum=1.0):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.aggregation_momentum = aggregation_momentum
+        self.verbose = False
 
         # 全局模型（仅用于聚合和下发，不直接训练）
         self.global_model = GraphQNetwork(
@@ -264,8 +267,9 @@ class FederatedServer:
     def distribute_global_model(self):
         """将全局模型参数下发给所有客户端"""
         global_params = copy.deepcopy(self.global_model.state_dict())
-        global_mean = self._state_param_mean(global_params)
-        print(f"[FedServer] distribute_global_model global_param_mean={global_mean:.6f}")
+        if self.verbose:
+            global_mean = self._state_param_mean(global_params)
+            print(f"[FedServer] distribute_global_model global_param_mean={global_mean:.6f}")
         for client in self.clients:
             client.load_global_model(global_params)
 
@@ -286,16 +290,17 @@ class FederatedServer:
         if total_weight == 0:
             return
 
-        before_mean = self._state_param_mean(self.global_model.state_dict())
-        client_mean_parts = []
-        for client, params, weight in zip(self.clients, client_params, client_weights):
-            client_mean_parts.append(
-                f"client{client.client_id}:mean={self._state_param_mean(params):.6f},samples={weight}"
+        if self.verbose:
+            before_mean = self._state_param_mean(self.global_model.state_dict())
+            client_mean_parts = []
+            for client, params, weight in zip(self.clients, client_params, client_weights):
+                client_mean_parts.append(
+                    f"client{client.client_id}:mean={self._state_param_mean(params):.6f},samples={weight}"
+                )
+            print(
+                f"[FedServer] aggregate_before global_param_mean={before_mean:.6f} | "
+                + " | ".join(client_mean_parts)
             )
-        print(
-            f"[FedServer] aggregate_before global_param_mean={before_mean:.6f} | "
-            + " | ".join(client_mean_parts)
-        )
 
         # 加权平均
         aggregated = OrderedDict()
@@ -321,8 +326,9 @@ class FederatedServer:
                 ).to(current_global[key].dtype)
             aggregated = smoothed
 
-        after_mean = self._state_param_mean(aggregated)
-        print(f"[FedServer] aggregate_after global_param_mean={after_mean:.6f}")
+        if self.verbose:
+            after_mean = self._state_param_mean(aggregated)
+            print(f"[FedServer] aggregate_after global_param_mean={after_mean:.6f}")
         self.global_model.load_state_dict(aggregated)
 
         # 重置各客户端的轮次样本计数
