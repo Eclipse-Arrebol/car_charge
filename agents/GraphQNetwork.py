@@ -16,7 +16,7 @@ class GraphQNetwork(nn.Module):
                  num_edge_features=2):
         """
         Args:
-            num_features:       节点特征维度 (当前=10)
+            num_features:       节点特征维度 (当前=15)
             num_actions:        动作数 = 充电站数量
             station_node_ids:   充电站对应的节点索引列表
             num_nodes_per_graph: 每张图的节点数

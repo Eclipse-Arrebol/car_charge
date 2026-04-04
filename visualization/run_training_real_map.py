@@ -11,6 +11,7 @@
 
 import os
 import sys
+import time
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -18,7 +19,7 @@ if project_root not in sys.path:
 
 import networkx as nx
 from env.RealTrafficEnv import RealTrafficEnv
-from train import DQNAgent
+from train import DQNAgent, _print_training_progress, _finish_progress_line
 from agents.FederatedDQN import FederatedServer, FederatedClient
 from visualization.visualize_training import TrainingVisualizer
 
@@ -128,8 +129,9 @@ def run_training_real(
         avg_queue_sum = 0.0
         overload_count = 0
         total_realized = 0.0
+        episode_start_time = time.time()
 
-        for _ in range(steps_per_episode):
+        for step_idx in range(steps_per_episode):
 
             # --- A. 顺序决策：利用率导向奖励 + per-EV 状态 + Action Mask ---
             urgent_evs = [ev for ev in env.evs
@@ -180,7 +182,7 @@ def run_training_real(
                 client.local_train(batch_size, num_steps=STEP_LOCAL_TRAIN_STEPS)
 
             # 更频繁地聚合，减少本地模型在长时间局部更新后发生漂移。
-            if (_ + 1) % AGGREGATION_INTERVAL == 0:
+            if (step_idx + 1) % AGGREGATION_INTERVAL == 0:
                 fed_server.aggregate()
                 fed_server.distribute_global_model()
 
@@ -188,6 +190,20 @@ def run_training_real(
             total_realized += info.get("realized_power", 0.0)
             avg_queue_sum  += sum(len(s.queue) for s in env.stations) / env.num_stations
             overload_count += int(info.get("voltage_violations", 0))
+            _print_training_progress(
+                episode=e,
+                episodes=episodes,
+                step=step_idx,
+                steps_per_episode=steps_per_episode,
+                total_reward=total_reward,
+                epsilon=min(c.epsilon for c in fed_server.clients),
+                episode_start_time=episode_start_time,
+                extra_metrics=(
+                    f"Power={total_realized:.0f}kW "
+                    f"QueueAvg={avg_queue_sum / (step_idx + 1):.2f} "
+                    f"UrgentEVs={len(urgent_evs)}"
+                ),
+            )
 
         # --- 联邦聚合 (每个 episode 结束后) ---
         for _ in range(fed_rounds_per_episode):
@@ -201,6 +217,7 @@ def run_training_real(
 
         for client in fed_server.clients:
             client.decay_epsilon()
+        _finish_progress_line()
 
         avg_queue = avg_queue_sum / steps_per_episode
         viz.add_episode_data(

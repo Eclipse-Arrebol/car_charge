@@ -15,7 +15,7 @@
         num_evs=10,
     )
     agent = DQNAgent(
-        num_features=14,
+        num_features=15,
         num_actions=env.num_stations,
         station_node_ids=env.station_node_ids,
         num_nodes_per_graph=env.num_nodes,

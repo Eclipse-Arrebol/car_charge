@@ -27,7 +27,7 @@ def _resolve_scale(command, debug, medium):
         }
     if medium:
         return {
-            "num_evs": 30,
+            "num_evs": 10,
             "steps": 200,
             "episodes": 100,
             "fed_rounds": 20,

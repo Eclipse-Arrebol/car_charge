@@ -198,7 +198,7 @@ class PowerGrid:
 # ==========================================
 class ChargingStation:
     def __init__(self, station_id, traffic_node_id, power_node_id,
-                 num_chargers=3, max_charger_power=20.0, max_grid_power=50.0):
+                 num_chargers=6, max_charger_power=20.0, max_grid_power=50.0):
         self.id = station_id
         self.traffic_node_id = traffic_node_id
         self.power_node_id = power_node_id
@@ -207,8 +207,8 @@ class ChargingStation:
         self.num_chargers = num_chargers          # 充电桩数量
         self.max_charger_power = max_charger_power  # 单桩最大功率 (kW)
         self.max_grid_power = max_grid_power        # 变压器配额 (kW)
-        self.max_queue_len = 10
-        self.max_wait_time_h = 2.0
+        self.max_queue_len = 20
+        self.max_wait_time_h = 4.0
 
         self.queue = []                   # 排队等候的车（还没插枪）
         self.connected_evs = []           # 已插枪、正在充电的车

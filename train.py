@@ -6,6 +6,7 @@ from torch_geometric.data import Batch
 import random
 import numpy as np
 import copy
+import time
 from collections import deque
 import networkx as nx
 
@@ -17,6 +18,35 @@ from agents.GraphQNetwork import GraphQNetwork
 def _clone_data_to_cpu(data):
     """Keep replay-buffer graph samples on CPU to avoid mixed-device batches."""
     return data.clone().cpu()
+
+
+def _print_training_progress(
+    episode,
+    episodes,
+    step,
+    steps_per_episode,
+    total_reward,
+    epsilon,
+    episode_start_time,
+    extra_metrics="",
+):
+    """Render a compact single-line progress view for long-running training."""
+    completed_steps = step + 1
+    elapsed = time.time() - episode_start_time
+    avg_reward = total_reward / completed_steps if completed_steps else 0.0
+    message = (
+        f"\r[Train] Episode {episode + 1}/{episodes} "
+        f"Step {completed_steps}/{steps_per_episode} "
+        f"Reward={total_reward:.2f} AvgStepReward={avg_reward:.2f} "
+        f"Epsilon={epsilon:.3f} Elapsed={elapsed:.1f}s"
+    )
+    if extra_metrics:
+        message += f" {extra_metrics}"
+    print(message, end="", flush=True)
+
+
+def _finish_progress_line():
+    print()
 
 
 # ==========================================
@@ -198,14 +228,16 @@ if __name__ == "__main__":
 
     episodes = 800
     batch_size = 64
+    steps_per_episode = 100
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + episodic reset)...")
 
     for e in range(episodes):
         env.reset()               # 每个 episode 重置环境
         total_reward = 0
+        episode_start_time = time.time()
 
-        for time_step in range(100):
+        for time_step in range(steps_per_episode):
 
             # --- A. 顺序决策：利用率导向奖励 + per-EV 状态 ---
             urgent_evs = [ev for ev in env.evs
@@ -247,8 +279,19 @@ if __name__ == "__main__":
                 agent.replay(batch_size)
 
             total_reward += reward
+            _print_training_progress(
+                episode=e,
+                episodes=episodes,
+                step=time_step,
+                steps_per_episode=steps_per_episode,
+                total_reward=total_reward,
+                epsilon=agent.epsilon,
+                episode_start_time=episode_start_time,
+                extra_metrics=f"Buffer={len(agent.memory)} UrgentEVs={len(urgent_evs)}",
+            )
 
         agent.decay_epsilon()
+        _finish_progress_line()
 
         if (e + 1) % 20 == 0:
             print(f"Episode {e + 1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.3f}")
