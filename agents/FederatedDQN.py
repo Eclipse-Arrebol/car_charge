@@ -26,6 +26,11 @@ from collections import deque, OrderedDict
 from agents.GraphQNetwork import GraphQNetwork
 
 
+def _clone_data_to_cpu(data):
+    """Keep replay-buffer graph samples on CPU to avoid mixed-device batches."""
+    return data.clone().cpu()
+
+
 # ============================================================
 # 1. 联邦客户端 (Federated Client)
 # ============================================================
@@ -42,6 +47,7 @@ class FederatedClient:
         self.num_actions = num_actions
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.proximal_mu = proximal_mu
+        self.lr = lr
 
         # 本地策略网络 + 目标网络
         self.policy_net = GraphQNetwork(
@@ -58,6 +64,7 @@ class FederatedClient:
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        self.default_action_mask = torch.ones(1, self.num_actions, dtype=torch.bool)
 
         # 本地经验回放池
         self.memory = deque(maxlen=memory_size)
@@ -65,14 +72,30 @@ class FederatedClient:
         # 探索参数
         self.epsilon = 1.0
         self.epsilon_min = 0.05
-        self.epsilon_decay = 0.9995
+        self.epsilon_decay = 0.9999
 
         self.target_update_freq = 100
         self.train_step_count = 0
+        self.local_train_call_count = 0
 
         # 本轮训练的样本数（用于 FedAvg 加权）
         self.num_samples_this_round = 0
         self.global_anchor_params = None
+
+    def _parameter_mean(self):
+        means = []
+        for tensor in self.policy_net.state_dict().values():
+            if torch.is_floating_point(tensor):
+                means.append(tensor.detach().float().mean().item())
+        return float(sum(means) / max(1, len(means)))
+
+    def optimizer_debug_state(self):
+        state_entries = sum(len(state) for state in self.optimizer.state.values())
+        lr = self.optimizer.param_groups[0]["lr"]
+        return {
+            "lr": float(lr),
+            "state_entries": int(state_entries),
+        }
 
     def load_global_model(self, global_state_dict):
         """从全局服务器加载模型参数"""
@@ -91,6 +114,12 @@ class FederatedClient:
             for name, tensor in self.policy_net.state_dict().items()
             if torch.is_floating_point(tensor)
         }
+        opt_state = self.optimizer_debug_state()
+        print(
+            f"[FedClient {self.client_id}] load_global_model "
+            f"param_mean={self._parameter_mean():.6f} "
+            f"lr={opt_state['lr']:.6f} optimizer_state_entries={opt_state['state_entries']}"
+        )
 
     def get_model_params(self):
         """返回本地模型参数（用于上传给服务器聚合）"""
@@ -105,7 +134,7 @@ class FederatedClient:
                     return random.choice(valid)
             return random.randint(0, self.num_actions - 1)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             state_data = state_data.to(self.device)
             if action_mask is not None:
                 action_mask = action_mask.to(self.device)
@@ -113,8 +142,15 @@ class FederatedClient:
             return q_values.argmax().item()
 
     def store_transition(self, state, action, reward, next_state, action_mask=None):
-        self.memory.append((state, action, reward, next_state, action_mask))
+        state_cpu = _clone_data_to_cpu(state)
+        next_state_cpu = _clone_data_to_cpu(next_state)
+        mask_cpu = action_mask.detach().clone().cpu() if action_mask is not None else None
+        self.memory.append((state_cpu, action, reward, next_state_cpu, mask_cpu))
         self.num_samples_this_round += 1
+
+    def decay_epsilon(self):
+        if self.epsilon > self.epsilon_min:
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def local_train(self, batch_size, num_steps=1):
         """本地训练若干步"""
@@ -137,10 +173,10 @@ class FederatedClient:
                 if len(m) > 4 and m[4] is not None:
                     mask_list.append(m[4])
                 else:
-                    mask_list.append(torch.ones(1, self.num_actions, dtype=torch.bool))
+                    mask_list.append(self.default_action_mask)
             mask_batch = torch.cat(mask_list, dim=0).to(self.device)
 
-            reward_batch = torch.clamp(reward_batch, min=-120.0, max=40.0)
+            reward_batch = torch.clamp(reward_batch, min=-500.0, max=50.0)
 
             # Q(s, a)
             q_values = self.policy_net(state_batch)
@@ -165,14 +201,16 @@ class FederatedClient:
                         prox_term = prox_term + torch.sum((param - anchor) ** 2)
                 loss = loss + 0.5 * self.proximal_mu * prox_term
 
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
             self.optimizer.step()
-
-            # epsilon 衰减
-            if self.epsilon > self.epsilon_min:
-                self.epsilon *= self.epsilon_decay
+            self.local_train_call_count += 1
+            if self.local_train_call_count % 10 == 0:
+                print(
+                    f"[FedClient {self.client_id}] local_train "
+                    f"step={self.local_train_call_count} loss={loss.item():.6f}"
+                )
 
             # 目标网络同步
             self.train_step_count += 1
@@ -198,7 +236,7 @@ class FederatedServer:
 
     def __init__(self, num_features, num_actions,
                  station_node_ids=None, num_nodes_per_graph=9,
-                 aggregation_momentum=0.35):
+                 aggregation_momentum=1.0):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.aggregation_momentum = aggregation_momentum
 
@@ -212,6 +250,13 @@ class FederatedServer:
         self.num_actions = num_actions
         self.clients = []
 
+    def _state_param_mean(self, state_dict):
+        means = []
+        for tensor in state_dict.values():
+            if torch.is_floating_point(tensor):
+                means.append(tensor.detach().float().mean().item())
+        return float(sum(means) / max(1, len(means)))
+
     def register_client(self, client):
         """注册联邦客户端"""
         self.clients.append(client)
@@ -219,6 +264,8 @@ class FederatedServer:
     def distribute_global_model(self):
         """将全局模型参数下发给所有客户端"""
         global_params = copy.deepcopy(self.global_model.state_dict())
+        global_mean = self._state_param_mean(global_params)
+        print(f"[FedServer] distribute_global_model global_param_mean={global_mean:.6f}")
         for client in self.clients:
             client.load_global_model(global_params)
 
@@ -239,6 +286,17 @@ class FederatedServer:
         if total_weight == 0:
             return
 
+        before_mean = self._state_param_mean(self.global_model.state_dict())
+        client_mean_parts = []
+        for client, params, weight in zip(self.clients, client_params, client_weights):
+            client_mean_parts.append(
+                f"client{client.client_id}:mean={self._state_param_mean(params):.6f},samples={weight}"
+            )
+        print(
+            f"[FedServer] aggregate_before global_param_mean={before_mean:.6f} | "
+            + " | ".join(client_mean_parts)
+        )
+
         # 加权平均
         aggregated = OrderedDict()
         for key in client_params[0]:
@@ -250,20 +308,22 @@ class FederatedServer:
                 client_params[i][key].float() * (client_weights[i] / total_weight)
                 for i in range(len(client_params))
             ).to(client_params[0][key].dtype)
+        if self.aggregation_momentum < 1.0:
+            smoothed = OrderedDict()
+            current_global = self.global_model.state_dict()
+            for key, value in aggregated.items():
+                if key == 'station_node_ids' or not torch.is_floating_point(value):
+                    smoothed[key] = value
+                    continue
+                smoothed[key] = (
+                    (1.0 - self.aggregation_momentum) * current_global[key].float()
+                    + self.aggregation_momentum * value.float()
+                ).to(current_global[key].dtype)
+            aggregated = smoothed
 
-        # 聚合后做一次动量平滑，减少不同客户端参数直接平均带来的震荡。
-        smoothed = OrderedDict()
-        current_global = self.global_model.state_dict()
-        for key, value in aggregated.items():
-            if key == 'station_node_ids' or not torch.is_floating_point(value):
-                smoothed[key] = value
-                continue
-            smoothed[key] = (
-                (1.0 - self.aggregation_momentum) * current_global[key].float()
-                + self.aggregation_momentum * value.float()
-            ).to(current_global[key].dtype)
-
-        self.global_model.load_state_dict(smoothed)
+        after_mean = self._state_param_mean(aggregated)
+        print(f"[FedServer] aggregate_after global_param_mean={after_mean:.6f}")
+        self.global_model.load_state_dict(aggregated)
 
         # 重置各客户端的轮次样本计数
         for client in self.clients:

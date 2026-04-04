@@ -8,6 +8,7 @@ EV 充电调度强化学习系统 — 统一入口
     python main.py evaluate        # 评估已训练模型
     python main.py download-map    # 下载真实路网地图
      python visualization/visualize_simulation_3d.py --policy dqn --steps 120 --show-edges
+     ssh -p 22182 root@region-9.autodl.pro
 """
 
 import argparse
@@ -15,21 +16,80 @@ import sys
 import os
 
 
-def cmd_train(_args):
+def _resolve_scale(command, debug, medium):
+    if debug:
+        return {
+            "num_evs": 10,
+            "steps": 50,
+            "episodes": 20,
+            "fed_rounds": 5,
+            "batch_size": 8,
+        }
+    if medium:
+        return {
+            "num_evs": 30,
+            "steps": 200,
+            "episodes": 100,
+            "fed_rounds": 20,
+            "batch_size": 32,
+        }
+    defaults = {
+        "train": {
+            "num_evs": 10,
+            "steps": 100,
+            "episodes": 800,
+            "fed_rounds": 1,
+            "batch_size": 64,
+        },
+        "train-real": {
+            "num_evs": 100,
+            "steps": 1000,
+            "episodes": 500,
+            "fed_rounds": 1,
+            "batch_size": 64,
+        },
+        "train-viz": {
+            "num_evs": 10,
+            "steps": 100,
+            "episodes": 500,
+            "fed_rounds": 1,
+            "batch_size": 64,
+        },
+        "evaluate": {
+            "num_evs": 100,
+            "steps": 1000,
+            "episodes": 5,
+            "fed_rounds": 1,
+            "batch_size": 64,
+        },
+        "download-map": {
+            "num_evs": 10,
+            "steps": 50,
+            "episodes": 20,
+            "fed_rounds": 5,
+            "batch_size": 8,
+        },
+    }
+    return defaults[command]
+
+
+def cmd_train(args):
     """基础 DQN 训练（合成路网）"""
     from train import DQNAgent
     from env.Traffic import TrafficPowerEnv
+    cfg = _resolve_scale(args.command, args.debug, args.medium)
 
-    env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=14, num_actions=2)
+    env = TrafficPowerEnv(num_evs=cfg["num_evs"])
+    agent = DQNAgent(num_features=15, num_actions=2)
 
-    episodes = 800
-    batch_size = 64
+    episodes = cfg["episodes"]
+    steps_per_episode = cfg["steps"]
+    batch_size = cfg["batch_size"]
     print("开始训练 (合成路网)...")
     for e in range(episodes):
         env.reset()
         total_reward = 0
-        for _ in range(100):
+        for _ in range(steps_per_episode):
             urgent_evs = [ev for ev in env.evs if ev.status == "IDLE" and ev.soc < 30.0]
             urgent_evs.sort(key=lambda ev: ev.soc)
             actions = {}
@@ -57,31 +117,45 @@ def cmd_train(_args):
             if ev_dispatch or len(agent.memory) >= batch_size:
                 agent.replay(batch_size)
             total_reward += reward
+        agent.decay_epsilon()
         if (e + 1) % 50 == 0:
             print(f"Episode {e+1}/{episodes}  reward={total_reward:.1f}  ε={agent.epsilon:.3f}")
     agent.save_model()
     print("训练完成，模型已保存至 checkpoints/trained_dqn.pth")
 
 
-def cmd_train_real(_args):
+def cmd_train_real(args):
     """联邦 DQN 训练（真实路网 + 可视化）"""
     from visualization.run_training_real_map import run_training_real
-    run_training_real()
+    cfg = _resolve_scale(args.command, args.debug, args.medium)
+    run_training_real(
+        num_evs=cfg["num_evs"],
+        episodes=cfg["episodes"],
+        steps_per_episode=cfg["steps"],
+        fed_rounds_per_episode=cfg["fed_rounds"],
+        batch_size=cfg["batch_size"],
+    )
 
 
-def cmd_train_viz(_args):
+def cmd_train_viz(args):
     """基础训练 + 可视化输出"""
     from visualization.run_training_with_viz import run_training
-    run_training()
+    cfg = _resolve_scale(args.command, args.debug, args.medium)
+    run_training(
+        episodes=cfg["episodes"],
+        steps_per_episode=cfg["steps"],
+        num_evs=cfg["num_evs"],
+    )
 
 
-def cmd_evaluate(_args):
+def cmd_evaluate(args):
     """评估已训练模型（随机基线 / DQN / 联邦DQN 三方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
+    cfg = _resolve_scale(args.command, args.debug, args.medium)
 
     USE_REAL_MAP = True
-    EPISODES = 5
-    STEPS = 100
+    EPISODES = cfg["episodes"]
+    STEPS = cfg["steps"]
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
@@ -90,7 +164,8 @@ def cmd_evaluate(_args):
     print("  【1/3】随机策略基线")
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                   use_random=True, use_real_map=USE_REAL_MAP)
+                                   use_random=True, use_real_map=USE_REAL_MAP,
+                                   num_evs=cfg["num_evs"])
 
     print("\n")
     print("=" * 62)
@@ -98,7 +173,8 @@ def cmd_evaluate(_args):
     print("=" * 62)
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth")
+                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth",
+                                num_evs=cfg["num_evs"])
 
     print("\n")
     print("=" * 62)
@@ -106,7 +182,8 @@ def cmd_evaluate(_args):
     print("=" * 62)
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_federated_dqn_real.pth")
+                                model_file="trained_federated_dqn_real.pth",
+                                num_evs=cfg["num_evs"])
 
     _compare_table({"Random": random_report, "DQN": dqn_report, "FedDQN": fed_report})
 
@@ -132,8 +209,21 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "command",
+        nargs="?",
         choices=list(COMMANDS.keys()),
+        default="evaluate",
         help="要执行的操作",
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--debug",
+        action="store_true",
+        help="启用小规模快速测试参数",
+    )
+    mode_group.add_argument(
+        "--medium",
+        action="store_true",
+        help="启用中等规模测试参数",
     )
     args = parser.parse_args()
     COMMANDS[args.command](args)

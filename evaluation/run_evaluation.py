@@ -28,8 +28,8 @@ from evaluation.metrics import Evaluator
 REAL_MAP_MAX_NODES = 9999
 
 
-def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real_map=True,
-                   model_file=None):
+def run_evaluation(episodes=3, steps_per_episode=1000, use_random=False, use_real_map=True,
+                   model_file=None, num_evs=100):
     """
     运行评估。
 
@@ -47,19 +47,19 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real
             print(f"[错误] 未找到真实路网文件: {graphml_path}")
             print("自动回退到 3x3 基础网格环境。")
             use_real_map = False
-            env = TrafficPowerEnv()
+            env = TrafficPowerEnv(num_evs=num_evs)
         else:
             print(f"[环境] 加载真实路网: {graphml_path}")
             env = RealTrafficEnv(
                 graphml_file=graphml_path,
                 num_stations=2,
-                num_evs=20,
+                num_evs=num_evs,
                 max_nodes=REAL_MAP_MAX_NODES,
                 seed=42
             )
     else:
         print("[环境] 使用 3x3 基础网格")
-        env = TrafficPowerEnv()
+        env = TrafficPowerEnv(num_evs=num_evs)
 
     evaluator = Evaluator()
 
@@ -71,7 +71,7 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real
         print("[策略] 使用训练后的 DQN 策略")
         
         # 获取环境特定的参数以初始化网络
-        num_features = 14
+        num_features = 15
         num_actions = getattr(env, 'num_stations', 2)
         station_node_ids = getattr(env, 'station_node_ids', [0, 8])
         num_nodes_per_graph = getattr(env, 'num_nodes', 9)
@@ -108,12 +108,12 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real
             env = RealTrafficEnv(
                 graphml_file=graphml_path,
                 num_stations=2,
-                num_evs=20,
+                num_evs=num_evs,
                 max_nodes=REAL_MAP_MAX_NODES,
                 seed=rng.randint(0, 10000) # 每次评估换个种子改变EV初始位置
             )
         else:
-            env = TrafficPowerEnv()
+            env = TrafficPowerEnv(num_evs=num_evs)
         evaluator.reset()
 
         for step in range(steps_per_episode):
@@ -129,7 +129,8 @@ def run_evaluation(episodes=3, steps_per_episode=100, use_random=False, use_real
             for ev in urgent_evs:
                 if agent is not None:
                     ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-                    action = agent.select_action(ev_state)
+                    action_mask = env.get_action_mask(ev)
+                    action = agent.select_action(ev_state, action_mask=action_mask)
                 else:
                     action = rng.choice([0, 1])
                 actions[ev.id] = action
@@ -200,7 +201,7 @@ if __name__ == "__main__":
     # 配置是否使用真实路网(珠江新城.graphml) 或 3x3网格
     USE_REAL_MAP = True
     EPISODES = 5
-    STEPS = 100
+    STEPS = 1000
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")

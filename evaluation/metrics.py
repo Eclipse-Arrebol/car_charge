@@ -60,16 +60,20 @@ class UserMetrics:
         travel_steps = np.array([ev.travel_steps for ev in evs], dtype=float)
         wait_steps   = np.array([ev.wait_steps   for ev in evs], dtype=float)
         charge_steps = np.array([ev.charge_steps  for ev in evs], dtype=float)
+        travel_hours = np.array([getattr(ev, "travel_time_h", ev.travel_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
+        wait_hours   = np.array([getattr(ev, "wait_time_h", ev.wait_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
+        charge_hours = np.array([getattr(ev, "charge_time_h", ev.charge_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
         fees_paid    = np.array([ev.total_fee_paid for ev in evs], dtype=float)
         sessions     = np.array([ev.charge_sessions for ev in evs], dtype=float)
+        abandoned    = np.array([getattr(ev, "abandoned_charge_count", 0) for ev in evs], dtype=float)
 
         h = self.p.STEP_DURATION_H
         vott = self.p.VOTT
 
         # --- 各项时间成本 (CNY/veh) ---
-        travel_cost  = travel_steps * h * vott            # 行驶时间成本
-        charge_cost  = charge_steps * h * vott            # 充电时间成本
-        wait_cost    = wait_steps   * h * vott            # 等待时间成本
+        travel_cost  = travel_hours * vott                # 行驶时间成本
+        charge_cost  = charge_hours * vott                # 充电时间成本
+        wait_cost    = wait_hours   * vott                # 等待时间成本
 
         # --- 充电费用 (CNY/veh) ---
         charging_fee = fees_paid                          # 已在 station.step 中累计
@@ -81,7 +85,7 @@ class UserMetrics:
         # 仅统计有过充电行为的车
         active_mask = sessions > 0
         if active_mask.any():
-            avg_wait_min = float(np.mean(wait_steps[active_mask]) * h * 60)
+            avg_wait_min = float(np.mean(wait_hours[active_mask]) * 60)
         else:
             avg_wait_min = 0.0
 
@@ -100,6 +104,8 @@ class UserMetrics:
         if end_evs_in_line is None:
             end_evs_in_line = float(current_evs_in_line)
 
+        incomplete_evs = sum(1 for ev in evs if getattr(ev, "status", "IDLE") != "IDLE")
+
         return {
             # 每辆车的平均值
             "travel_time_cost_per_veh":   float(np.mean(travel_cost)),
@@ -114,6 +120,8 @@ class UserMetrics:
             # 汇总
             "total_charge_sessions":      int(sessions.sum()),
             "total_energy_charged_kwh":   float(sum(ev.total_energy_charged for ev in evs)),
+            "abandoned_evs":              int(abandoned.sum()),
+            "incomplete_evs":             int(incomplete_evs),
         }
 
     @staticmethod
@@ -124,6 +132,7 @@ class UserMetrics:
             "total_charging_cost_per_veh", "avg_wait_time_min",
             "evs_in_line", "end_evs_in_line",
             "total_charge_sessions", "total_energy_charged_kwh",
+            "abandoned_evs", "incomplete_evs",
         ]}
 
 
@@ -267,4 +276,6 @@ class Evaluator:
         print(f"  评估步数: {r['evaluation_steps']}  |  "
               f"充电次数: {r['total_charge_sessions']}  |  "
               f"总充电量: {r['total_energy_charged_kwh']:.1f} kWh")
+        print(f"  放弃充电车辆: {r['abandoned_evs']}  |  "
+              f"未完成充电车辆: {r['incomplete_evs']}")
         print("=" * 62)

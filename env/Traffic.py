@@ -47,9 +47,13 @@ class EV:
         self.travel_steps = 0          # 行驶步数 (MOVING_TO_CHARGE 状态)
         self.wait_steps = 0            # 排队等待步数 (WAITING 状态)
         self.charge_steps = 0          # 充电步数 (CHARGING 状态)
+        self.travel_time_h = 0.0       # 实际行驶时长 (小时)
+        self.wait_time_h = 0.0         # 实际等待时长 (小时)
+        self.charge_time_h = 0.0       # 实际充电时长 (小时)
         self.total_fee_paid = 0.0      # 累计支付的充电费用 (CNY)
         self.total_energy_charged = 0.0 # 累计充入电量 (kWh，简化: 1步的kW=kWh)
         self.charge_sessions = 0       # 完成的充电次数
+        self.abandoned_charge_count = 0 # 超时放弃充电次数
 
     def move(self, env, step_hours=1.0):
         """
@@ -93,6 +97,7 @@ class EV:
 
         # 与旧逻辑兼容：按行驶时长扣 SOC（旧版约 2 SOC / step）
         self.soc -= 2.0 * moved_hours / max(1e-6, float(step_hours))
+        self.travel_time_h += moved_hours
         if self.soc < 0:
             self.soc = 0
 
@@ -202,6 +207,8 @@ class ChargingStation:
         self.num_chargers = num_chargers          # 充电桩数量
         self.max_charger_power = max_charger_power  # 单桩最大功率 (kW)
         self.max_grid_power = max_grid_power        # 变压器配额 (kW)
+        self.max_queue_len = 10
+        self.max_wait_time_h = 2.0
 
         self.queue = []                   # 排队等候的车（还没插枪）
         self.connected_evs = []           # 已插枪、正在充电的车
@@ -214,6 +221,8 @@ class ChargingStation:
         # 上一步的优化结果，供外部读取
         self.last_power_allocation = {}   # {ev_id: power_kW}
         self.last_total_load = 0.0        # 站级总负荷
+        self.predicted_arrivals = 0.0
+        self.arrival_ema_alpha = 0.3
 
     def update_price(self, tou_multiplier=1.0, price_noise=0.0):
         """
@@ -281,6 +290,14 @@ class ChargingStation:
         )
         billed_energy = remaining_energy / max(1e-6, ev.charge_efficiency)
         return self.current_price * billed_energy
+
+    def update_arrival_prediction(self, arrivals_this_step):
+        arrivals = max(0.0, float(arrivals_this_step))
+        self.predicted_arrivals = (
+            self.arrival_ema_alpha * arrivals
+            + (1.0 - self.arrival_ema_alpha) * self.predicted_arrivals
+        )
+        return self.predicted_arrivals
 
     # --------------------------------------------------
     # 核心方法: 凸优化功率分配
@@ -405,9 +422,10 @@ class ChargingStation:
 # 3. 环境主控 (Traffic-Power Environment)
 # ==========================================
 class TrafficPowerEnv:
-    def __init__(self):
+    def __init__(self, num_evs=10):
         self.traffic_graph = nx.grid_2d_graph(3, 3)
         self.traffic_graph = nx.convert_node_labels_to_integers(self.traffic_graph)
+        self.num_evs = num_evs
 
         self.stations = [
             ChargingStation(station_id=0, traffic_node_id=0, power_node_id='Grid_A'),
@@ -415,7 +433,7 @@ class TrafficPowerEnv:
         ]
 
         self.evs = []
-        for i in range(10):
+        for i in range(self.num_evs):
             start_node = random.randint(1, 7)
             self.evs.append(EV(i, start_node))
 
@@ -426,6 +444,8 @@ class TrafficPowerEnv:
         self.bpr_alpha = 0.15
         self.bpr_beta = 4.0
         self.edge_active_counts = {}          # {(u, v): active_vehicles}
+        self.edge_step_counts = {}            # {(u, v): entries within current step}
+        self.edge_peak_counts = {}            # {(u, v): peak active vehicles within current step}
 
         # 电网物理模型
         self.power_grid = PowerGrid()
@@ -443,7 +463,7 @@ class TrafficPowerEnv:
             ChargingStation(station_id=1, traffic_node_id=8, power_node_id='Grid_B')
         ]
         self.evs = []
-        for i in range(10):
+        for i in range(self.num_evs):
             start_node = random.randint(1, 7)
             self.evs.append(EV(i, start_node))
         self.power_limit = 15.0
@@ -453,7 +473,21 @@ class TrafficPowerEnv:
         self.price_noise = 0.0
         self.prev_total_load = 0.0
         self.edge_active_counts = {}
+        self.edge_step_counts = {}
+        self.edge_peak_counts = {}
         return self.get_graph_state()
+
+    @staticmethod
+    def _reset_ev_charging_attempt(ev):
+        """Reset an EV to idle so it can pick a station again on the next step."""
+        ev.status = "IDLE"
+        ev.target_station_idx = None
+        ev.assigned_station = None
+        ev.path = []
+        ev.current_edge_from = None
+        ev.current_edge_target = None
+        ev.remaining_edge_time_h = 0.0
+        ev.current_edge_speed_kph = 0.0
 
     @staticmethod
     def _parse_speed_kph(speed_raw, default=50.0):
@@ -593,6 +627,11 @@ class TrafficPowerEnv:
         length_m, speed_kph, t_h = self.get_edge_travel_profile(u, v)
         key = (u, v)
         self.edge_active_counts[key] = self.edge_active_counts.get(key, 0) + 1
+        self.edge_step_counts[key] = self.edge_step_counts.get(key, 0) + 1
+        self.edge_peak_counts[key] = max(
+            self.edge_peak_counts.get(key, 0),
+            self.edge_active_counts[key],
+        )
         return length_m, speed_kph, t_h
 
     def leave_edge(self, u, v):
@@ -664,9 +703,9 @@ class TrafficPowerEnv:
         return self._estimate_ev_station_metrics(ev, station, pending_counts=pending_counts)
 
     def get_graph_state(self):
-        """返回 PyG 的 Data 对象 (全局状态, 14 维特征)"""
+        """返回 PyG 的 Data 对象 (全局状态, 15 维特征)"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=14:
+        # 特征维度=15:
         #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
         #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
         #   [8] 请求EV的SOC/100 (默认0, 由 get_graph_state_for_ev 设置)
@@ -675,7 +714,8 @@ class TrafficPowerEnv:
         #   [11] 到站后服务时间(小时)
         #   [12] 广义出行成本(归一化)
         #   [13] 实时价格扰动系数
-        x = torch.zeros((num_nodes, 14), dtype=torch.float)
+        #   [14] 预测到达车辆数(EMA)
+        x = torch.zeros((num_nodes, 15), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
@@ -695,6 +735,7 @@ class TrafficPowerEnv:
             x[node_idx, 5] = station.last_total_load / max(1.0, station.max_grid_power)
             x[node_idx, 6] = self.power_grid.bus_voltages.get(
                 station.power_node_id, 1.0)             # 母线电压
+            x[node_idx, 14] = station.predicted_arrivals
 
         data = Data(x=x, edge_index=self.edge_index, edge_attr=self.edge_attr)
         return data
@@ -774,9 +815,12 @@ class TrafficPowerEnv:
 
     def step(self, actions):
         self.time_step += 1
+        self.edge_step_counts = {}
+        self.edge_peak_counts = {}
         grid_loads = {station.power_node_id: 0.0 for station in self.stations}
         decision_metrics = {}
         pending_counts = {s.id: 0 for s in self.stations}
+        arrivals_this_step = {s.id: 0 for s in self.stations}
 
         urgent_evs = [ev for ev in self.evs if ev.id in actions and ev.status == "IDLE"]
         urgent_evs.sort(key=lambda item: item.soc)
@@ -823,16 +867,33 @@ class TrafficPowerEnv:
                     and ev.remaining_edge_time_h <= 1e-9
                     and ev.curr_node == target_station.traffic_node_id
                 ):
-                    target_station.queue.append(ev)
-                    ev.status = "WAITING"
+                    if len(target_station.queue) >= target_station.max_queue_len:
+                        self._reset_ev_charging_attempt(ev)
+                    else:
+                        target_station.queue.append(ev)
+                        ev.status = "WAITING"
+                        arrivals_this_step[target_station.id] += 1
 
             elif ev.status == "WAITING":
                 ev.wait_steps += 1
+                ev.wait_time_h += self.step_duration_h
+                target_station = None
+                if ev.target_station_idx is not None:
+                    target_station = self.stations[ev.target_station_idx]
+                if target_station is not None and ev.wait_time_h >= target_station.max_wait_time_h:
+                    if ev in target_station.queue:
+                        target_station.queue.remove(ev)
+                    ev.abandoned_charge_count += 1
+                    self._reset_ev_charging_attempt(ev)
 
             elif ev.status == "CHARGING":
                 ev.charge_steps += 1
+                ev.charge_time_h += self.step_duration_h
 
         # --- 2. 分时电价 ---
+        for station in self.stations:
+            station.update_arrival_prediction(arrivals_this_step.get(station.id, 0))
+
         self.tou_multiplier = get_tou_multiplier(self.time_step, self.steps_per_day)
         self.price_noise = random.uniform(-0.1, 0.1)
 
@@ -872,6 +933,13 @@ class TrafficPowerEnv:
             "tou_multiplier": self.tou_multiplier,
             "price_noise": self.price_noise,
             "decision_costs": decision_metrics,
+            "active_edge_flows": dict(self.edge_active_counts),
+            "active_edge_vehicle_count": int(sum(self.edge_active_counts.values())),
+            "edge_entries_this_step": dict(self.edge_step_counts),
+            "peak_edge_flows_this_step": dict(self.edge_peak_counts),
+            "avg_decision_trip_time_h": (
+                sum(m["trip_time_h"] for m in decision_metrics.values()) / max(1, len(decision_metrics))
+            ),
             "objective_terms": {
                 "user_cost": user_cost,
                 "queue_cost": queue_cost,
@@ -925,7 +993,7 @@ if __name__ == "__main__":
 
         if t == 0:
             print("\n[系统自检] GNN 输入数据格式验证:")
-            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 9])")
+            print(f"节点特征矩阵 x shape: {graph_state.x.shape} (期望: [9, 15])")
             print(f"边索引 edge_index shape: {graph_state.edge_index.shape}")
             print(f"特征示例 (节点0 - Station): {graph_state.x[0]}")
 

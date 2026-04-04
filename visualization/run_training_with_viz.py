@@ -16,9 +16,9 @@ from env.Traffic import TrafficPowerEnv
 from visualization.visualize_training import TrainingVisualizer
 
 
-def run_training(episodes=500, steps_per_episode=100, batch_size=64):
-    env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=14, num_actions=2)
+def run_training(episodes=500, steps_per_episode=100, batch_size=64, num_evs=10):
+    env = TrafficPowerEnv(num_evs=num_evs)
+    agent = DQNAgent(num_features=15, num_actions=2)
     viz = TrainingVisualizer()
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + 凸优化调度 + 可视化)...")
@@ -78,6 +78,7 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64):
             overload_count += int(info.get("voltage_violations", 0))
 
         avg_queue = avg_queue_sum / steps_per_episode
+        agent.decay_epsilon()
         viz.add_episode_data(
             episode=e + 1,
             reward=total_reward,

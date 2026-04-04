@@ -14,6 +14,11 @@ from env.Traffic import TrafficPowerEnv
 from agents.GraphQNetwork import GraphQNetwork
 
 
+def _clone_data_to_cpu(data):
+    """Keep replay-buffer graph samples on CPU to avoid mixed-device batches."""
+    return data.clone().cpu()
+
+
 # ==========================================
 # 1. DQN 智能体 (带目标网络)
 # ==========================================
@@ -38,6 +43,7 @@ class DQNAgent:
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.0003)
+        self.default_action_mask = torch.ones(1, self.num_actions, dtype=torch.bool)
 
         # 记忆库 (Replay Buffer)
         self.memory = deque(maxlen=50000)
@@ -45,7 +51,7 @@ class DQNAgent:
         # 探索参数 (Epsilon-Greedy) — 更慢衰减，充分探索两站的差异
         self.epsilon = 1.0
         self.epsilon_min = 0.05
-        self.epsilon_decay = 0.9995
+        self.epsilon_decay = 0.9999
 
         # 目标网络同步间隔 (每多少步同步一次) — 缩短至 100 步，更及时更新
         self.target_update_freq = 100
@@ -61,7 +67,7 @@ class DQNAgent:
                     return random.choice(valid)
             return random.randint(0, self.num_actions - 1)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             state_data = state_data.to(self.device)
             if action_mask is not None:
                 action_mask = action_mask.to(self.device)
@@ -69,7 +75,14 @@ class DQNAgent:
             return q_values.argmax().item()
 
     def store_transition(self, state, action, reward, next_state, action_mask=None):
-        self.memory.append((state, action, reward, next_state, action_mask))
+        state_cpu = _clone_data_to_cpu(state)
+        next_state_cpu = _clone_data_to_cpu(next_state)
+        mask_cpu = action_mask.detach().clone().cpu() if action_mask is not None else None
+        self.memory.append((state_cpu, action, reward, next_state_cpu, mask_cpu))
+
+    def decay_epsilon(self):
+        if self.epsilon > self.epsilon_min:
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def replay(self, batch_size):
         """经验回放 (使用目标网络计算 TD 目标, 支持 Action Mask)"""
@@ -90,11 +103,11 @@ class DQNAgent:
             if len(m) > 4 and m[4] is not None:
                 mask_list.append(m[4])
             else:
-                mask_list.append(torch.ones(1, self.num_actions, dtype=torch.bool))
+                mask_list.append(self.default_action_mask)
         mask_batch = torch.cat(mask_list, dim=0).to(self.device)  # [B, num_actions]
 
         # Reward 截断：per-EV 路由奖励范围约 [-120, +40]，截断过大异常值
-        reward_batch = torch.clamp(reward_batch, min=-120.0, max=40.0)
+        reward_batch = torch.clamp(reward_batch, min=-500.0, max=50.0)
 
         # Q(s, a) — 训练时不施加 mask（mask 只影响动作选择，不影响 Q 值回归）
         q_values = self.policy_net(state_batch)
@@ -108,15 +121,11 @@ class DQNAgent:
             target_q = reward_batch + 0.99 * next_q
 
         loss = F.mse_loss(curr_q, target_q)
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         # 梯度裁剪：防止梯度爆炸
         torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
         self.optimizer.step()
-
-        # epsilon 衰减
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
 
         # 定期同步目标网络
         self.train_step_count += 1
@@ -148,7 +157,7 @@ class DQNAgent:
                     f"使用当前环境站点: {cur_station_ids.tolist()}"
                 )
 
-        # 兼容旧版 checkpoint：若输入特征从 10 维扩展到 14 维，
+        # 兼容旧版 checkpoint：若输入特征进一步扩展，
         # 自动扩展第一层输入权重，保留原有 10 维参数，新增维度置 0。
         cur_state = self.policy_net.state_dict()
         for key in ("conv1.lin_l.weight", "conv1.lin_r.weight"):
@@ -185,7 +194,7 @@ class DQNAgent:
 # ==========================================
 if __name__ == "__main__":
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=14, num_actions=2)  # 14个特征(含时间/服务/成本), 2个充电站
+    agent = DQNAgent(num_features=15, num_actions=2)  # 15个特征(新增 predicted_arrivals), 2个充电站
 
     episodes = 800
     batch_size = 64
@@ -238,6 +247,8 @@ if __name__ == "__main__":
                 agent.replay(batch_size)
 
             total_reward += reward
+
+        agent.decay_epsilon()
 
         if (e + 1) % 20 == 0:
             print(f"Episode {e + 1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.3f}")

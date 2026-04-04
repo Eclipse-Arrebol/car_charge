@@ -29,7 +29,7 @@ from visualization.visualize_training import TrainingVisualizer
 
 # 方式 B：本地 GraphML 文件（填写路径后优先使用）
 # 先运行项目根目录下的 download_map.py 生成文件，再填入路径
-LOCAL_GRAPHML = r"G:\交电demo\zhujiang_new_town.graphml"         # 例: r"G:\交电demo\zhujiang_new_town.graphml"
+LOCAL_GRAPHML = os.path.join(project_root, "zhujiang_new_town.graphml")
 
 # 方式 C：直接使用离线合成路网（True = 跳过所有网络请求）
 OFFLINE_FALLBACK = False
@@ -39,26 +39,33 @@ PLACE     = "Wuchang District, Wuhan, China"   # OSM 地名
 
 # ── 路网规模 ──
 MAX_NODES = 9999    # 使用完整路网（不精简节点）
-NUM_EVS   = 20      # EV 数量（与评估环境保持一致）
+NUM_EVS   = 100     # EV 数量（与评估环境保持一致）
 NUM_STATS = 2       # 充电站数量
 
-EPISODES         = 200  # 增加训练轮次
-STEPS_PER_EP     = 100
+EPISODES         = 500
+STEPS_PER_EP     = 1000
 BATCH_SIZE       = 64
-FED_LOCAL_STEPS  = 1    # 减小本地训练步数，降低客户端漂移
+STEP_LOCAL_TRAIN_STEPS = 2
+FED_LOCAL_STEPS  = 4
 FED_ROUNDS_PER_EP = 1   # 每个 episode 结束后执行一次联邦聚合
 AGGREGATION_INTERVAL = 10  # episode 内每隔若干步执行一次聚合
 # ============================================================
 
 
-def run_training_real():
+def run_training_real(
+    num_evs=NUM_EVS,
+    episodes=EPISODES,
+    steps_per_episode=STEPS_PER_EP,
+    fed_rounds_per_episode=FED_ROUNDS_PER_EP,
+    batch_size=BATCH_SIZE,
+):
     # ── 根据配置选择路网来源 ──
     if LOCAL_GRAPHML is not None:
         print(f"[模式 B] 使用本地 GraphML 文件: {LOCAL_GRAPHML}")
         env = RealTrafficEnv(
             graphml_file=LOCAL_GRAPHML,
             num_stations=NUM_STATS,
-            num_evs=NUM_EVS,
+            num_evs=num_evs,
             max_nodes=MAX_NODES,
             seed=42,
         )
@@ -67,7 +74,7 @@ def run_training_real():
         env = RealTrafficEnv(
             place=PLACE,
             num_stations=NUM_STATS,
-            num_evs=NUM_EVS,
+            num_evs=num_evs,
             max_nodes=MAX_NODES,
             seed=42,
             offline=True,
@@ -77,7 +84,7 @@ def run_training_real():
         env = RealTrafficEnv(
             place=PLACE,
             num_stations=NUM_STATS,
-            num_evs=NUM_EVS,
+            num_evs=num_evs,
             max_nodes=MAX_NODES,
             seed=42,
         )
@@ -85,18 +92,18 @@ def run_training_real():
     # ── 联邦学习架构初始化 ──
     # 全局服务器
     fed_server = FederatedServer(
-        num_features=14,
+        num_features=15,
         num_actions=env.num_stations,
         station_node_ids=env.station_node_ids,
         num_nodes_per_graph=env.num_nodes,
-        aggregation_momentum=0.35,
+        aggregation_momentum=1.0,
     )
 
     # 每个充电站区域创建一个联邦客户端
     for i in range(env.num_stations):
         client = FederatedClient(
             client_id=i,
-            num_features=14,
+            num_features=15,
             num_actions=env.num_stations,
             station_node_ids=env.station_node_ids,
             num_nodes_per_graph=env.num_nodes,
@@ -106,22 +113,23 @@ def run_training_real():
 
     # 初始下发全局模型
     fed_server.distribute_global_model()
+    client_distance_cache = _build_client_distance_cache(env)
 
     viz = TrainingVisualizer(save_dir="results/real")
 
     network_desc = (LOCAL_GRAPHML or ("offline-synthetic" if OFFLINE_FALLBACK else PLACE))
     print(f"\nStart federated training (network: {network_desc})")
-    print(f"nodes={env.num_nodes}, stations={env.station_node_ids}, EVs={NUM_EVS}")
+    print(f"nodes={env.num_nodes}, stations={env.station_node_ids}, EVs={num_evs}")
     print(f"FL clients={env.num_stations}, local_steps={FED_LOCAL_STEPS}\n")
 
-    for e in range(EPISODES):
+    for e in range(episodes):
         env.reset()
         total_reward = 0.0
         avg_queue_sum = 0.0
         overload_count = 0
         total_realized = 0.0
 
-        for _ in range(STEPS_PER_EP):
+        for _ in range(steps_per_episode):
 
             # --- A. 顺序决策：利用率导向奖励 + per-EV 状态 + Action Mask ---
             urgent_evs = [ev for ev in env.evs
@@ -138,7 +146,7 @@ def run_training_real():
                 action_mask = env.get_action_mask(ev)
 
                 # 选择离 EV 最近的充电站对应的客户端来做决策
-                client_id = _select_client_for_ev(env, ev, client_loads)
+                client_id = _select_client_for_ev(env, ev, client_loads, client_distance_cache)
                 client = fed_server.clients[client_id]
 
                 action = client.select_action(ev_state, action_mask=action_mask)
@@ -169,7 +177,7 @@ def run_training_real():
 
             # 各客户端本地训练
             for client in fed_server.clients:
-                client.local_train(BATCH_SIZE, num_steps=1)
+                client.local_train(batch_size, num_steps=STEP_LOCAL_TRAIN_STEPS)
 
             # 更频繁地聚合，减少本地模型在长时间局部更新后发生漂移。
             if (_ + 1) % AGGREGATION_INTERVAL == 0:
@@ -182,16 +190,19 @@ def run_training_real():
             overload_count += int(info.get("voltage_violations", 0))
 
         # --- 联邦聚合 (每个 episode 结束后) ---
-        for _ in range(FED_ROUNDS_PER_EP):
+        for _ in range(fed_rounds_per_episode):
             # 各客户端执行额外本地训练步
             for client in fed_server.clients:
-                client.local_train(BATCH_SIZE, num_steps=FED_LOCAL_STEPS)
+                client.local_train(batch_size, num_steps=FED_LOCAL_STEPS)
             # FedAvg 聚合
             fed_server.aggregate()
             # 下发全局模型
             fed_server.distribute_global_model()
 
-        avg_queue = avg_queue_sum / STEPS_PER_EP
+        for client in fed_server.clients:
+            client.decay_epsilon()
+
+        avg_queue = avg_queue_sum / steps_per_episode
         viz.add_episode_data(
             episode=e + 1,
             reward=total_reward,
@@ -201,7 +212,7 @@ def run_training_real():
         )
 
         if (e + 1) % 20 == 0:
-            print(f"Episode {e+1}/{EPISODES}  "
+            print(f"Episode {e+1}/{episodes}  "
                   f"Reward={total_reward:.1f}  "
                   f"Power={total_realized:.0f}kW  "
                   f"Queue={avg_queue:.2f}  "
@@ -217,17 +228,24 @@ def run_training_real():
     print(f"\n联邦训练完成！全局模型已保存: {save_path}")
 
 
-def _select_client_for_ev(env, ev, client_loads):
+def _build_client_distance_cache(env):
+    """Precompute hop distances from every node to each station on the static road graph."""
+    if hasattr(env.traffic_graph, "reverse"):
+        distance_graph = env.traffic_graph.reverse(copy=False)
+    else:
+        distance_graph = env.traffic_graph
+    return [
+        nx.single_source_shortest_path_length(distance_graph, station.traffic_node_id)
+        for station in env.stations
+    ]
+
+
+def _select_client_for_ev(env, ev, client_loads, client_distance_cache):
     """按“距离 + 当前客户端负载”联合分配决策客户端，缓解样本极端非IID。"""
     best_id = 0
     best_score = float('inf')
-    for i, station in enumerate(env.stations):
-        try:
-            dist = nx.shortest_path_length(
-                env.traffic_graph, ev.curr_node, station.traffic_node_id
-            )
-        except nx.NetworkXNoPath:
-            dist = float('inf')
+    for i, _station in enumerate(env.stations):
+        dist = client_distance_cache[i].get(ev.curr_node, float('inf'))
 
         score = client_loads.get(i, 0) * 2.0 + dist
         if score < best_score:
