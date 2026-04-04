@@ -29,9 +29,16 @@ def _print_training_progress(
     epsilon,
     episode_start_time,
     extra_metrics="",
+    update_every=10,
 ):
     """Render a compact single-line progress view for long-running training."""
     completed_steps = step + 1
+    if (
+        completed_steps != 1
+        and completed_steps != steps_per_episode
+        and completed_steps % max(1, int(update_every)) != 0
+    ):
+        return
     elapsed = time.time() - episode_start_time
     avg_reward = total_reward / completed_steps if completed_steps else 0.0
     message = (
@@ -288,6 +295,7 @@ if __name__ == "__main__":
                 epsilon=agent.epsilon,
                 episode_start_time=episode_start_time,
                 extra_metrics=f"Buffer={len(agent.memory)} UrgentEVs={len(urgent_evs)}",
+                update_every=20,
             )
 
         agent.decay_epsilon()

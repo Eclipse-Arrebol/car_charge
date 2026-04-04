@@ -203,6 +203,7 @@ def run_training_real(
                     f"QueueAvg={avg_queue_sum / (step_idx + 1):.2f} "
                     f"UrgentEVs={len(urgent_evs)}"
                 ),
+                update_every=25,
             )
 
         # --- 联邦聚合 (每个 episode 结束后) ---
