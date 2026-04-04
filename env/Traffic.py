@@ -198,7 +198,7 @@ class PowerGrid:
 # ==========================================
 class ChargingStation:
     def __init__(self, station_id, traffic_node_id, power_node_id,
-                 num_chargers=6, max_charger_power=20.0, max_grid_power=50.0):
+                 num_chargers=4, max_charger_power=20.0, max_grid_power=50.0):
         self.id = station_id
         self.traffic_node_id = traffic_node_id
         self.power_node_id = power_node_id

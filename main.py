@@ -27,7 +27,7 @@ def _resolve_scale(command, debug, medium):
         }
     if medium:
         return {
-            "num_evs": 10,
+            "num_evs": 20,
             "steps": 200,
             "episodes": 100,
             "fed_rounds": 20,
@@ -155,7 +155,7 @@ def cmd_evaluate(args):
 
     USE_REAL_MAP = True
     EPISODES = min(cfg["episodes"], 3)
-    STEPS = min(cfg["steps"], 100)
+    STEPS = min(cfg["steps"], 300)
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
