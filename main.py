@@ -154,8 +154,8 @@ def cmd_evaluate(args):
     cfg = _resolve_scale(args.command, args.debug, args.medium)
 
     USE_REAL_MAP = True
-    EPISODES = cfg["episodes"]
-    STEPS = cfg["steps"]
+    EPISODES = min(cfg["episodes"], 3)
+    STEPS = min(cfg["steps"], 100)
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
