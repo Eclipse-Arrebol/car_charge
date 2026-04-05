@@ -28,8 +28,30 @@ from evaluation.metrics import Evaluator
 REAL_MAP_MAX_NODES = 9999
 
 
-def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_real_map=True,
-                   model_file=None, num_evs=100):
+def _greedy_action(stations, ev, action_mask, pending_counts):
+    """
+    贪心策略：选择综合负载最轻的充电站。
+    负载 = (队列数 + 已插枪数 + 本步待分配数) / 充电桩数
+    """
+    best_action = None
+    best_score = float('inf')
+    for i, station in enumerate(stations):
+        if not action_mask[0, i].item():
+            continue
+        load = (len(station.queue) + len(station.connected_evs)
+                + pending_counts.get(station.id, 0)) / max(station.num_chargers, 1)
+        if load < best_score:
+            best_score = load
+            best_action = i
+    if best_action is None:
+        # fallback：随机选可用站
+        valid = [i for i in range(len(stations)) if action_mask[0, i].item()]
+        best_action = rng.choice(valid) if valid else 0
+    return best_action
+
+
+def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
+                   use_real_map=True, model_file=None, num_evs=100):
     """
     运行评估。
 
@@ -37,6 +59,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_re
         episodes:          评估轮数 (多轮取均值更稳定)
         steps_per_episode: 每轮步数
         use_random:        True -> 随机策略基线;  False -> 加载已训练模型
+        use_greedy:        True -> 贪心策略基线 (最短队列归一化)
         use_real_map:      True -> 使用真实路网 (如珠江新城); False -> 使用 3x3 网格
         model_file:        指定 checkpoints/ 下的权重文件名，None 时自动选择
     """
@@ -66,6 +89,9 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_re
     # 2. 策略选择
     if use_random:
         print("[策略] 使用随机策略 (Random Baseline)")
+        agent = None
+    elif use_greedy:
+        print("[策略] 使用贪心策略 (Greedy Baseline)")
         agent = None
     else:
         print("[策略] 使用训练后的 DQN 策略")
@@ -131,6 +157,9 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_re
                     ev_state = env.get_graph_state_for_ev(ev, pending_counts)
                     action_mask = env.get_action_mask(ev)
                     action = agent.select_action(ev_state, action_mask=action_mask)
+                elif use_greedy:
+                    action_mask = env.get_action_mask(ev)
+                    action = _greedy_action(env.stations, ev, action_mask, pending_counts)
                 else:
                     action = rng.choice([0, 1])
                 actions[ev.id] = action
@@ -207,14 +236,21 @@ if __name__ == "__main__":
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
 
     print("=" * 62)
-    print("  【1/3】随机策略基线")
+    print("  【1/4】随机策略基线")
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_random=True, use_real_map=USE_REAL_MAP)
 
     print("\n")
     print("=" * 62)
-    print("  【2/3】DQN 策略评估")
+    print("  【2/4】贪心策略基线")
+    print("=" * 62)
+    greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
+                                   use_greedy=True, use_real_map=USE_REAL_MAP)
+
+    print("\n")
+    print("=" * 62)
+    print("  【3/4】DQN 策略评估")
     print("=" * 62)
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
@@ -222,10 +258,11 @@ if __name__ == "__main__":
 
     print("\n")
     print("=" * 62)
-    print("  【3/3】联邦 DQN 策略评估")
+    print("  【4/4】联邦 DQN 策略评估")
     print("=" * 62)
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_federated_dqn_real.pth")
 
-    _compare_table({"Random": random_report, "DQN": dqn_report, "FedDQN": fed_report})
+    _compare_table({"Random": random_report, "Greedy": greedy_report,
+                    "DQN": dqn_report, "FedDQN": fed_report})

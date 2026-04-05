@@ -166,7 +166,7 @@ def cmd_train_viz(args):
 
 
 def cmd_evaluate(args):
-    """评估已训练模型（随机基线 / DQN / 联邦DQN 三方对比）"""
+    """评估已训练模型（随机 / 贪心 / DQN / 联邦DQN 四方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
     cfg = _resolve_scale(args.command, args.debug, args.medium)
     eval_cfg = _resolve_evaluation_scale(args.debug, args.medium)
@@ -179,7 +179,7 @@ def cmd_evaluate(args):
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
 
     print("=" * 62)
-    print("  【1/3】随机策略基线")
+    print("  【1/4】随机策略基线")
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_random=True, use_real_map=USE_REAL_MAP,
@@ -187,7 +187,15 @@ def cmd_evaluate(args):
 
     print("\n")
     print("=" * 62)
-    print("  【2/3】DQN 策略评估")
+    print("  【2/4】贪心策略基线")
+    print("=" * 62)
+    greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
+                                   use_greedy=True, use_real_map=USE_REAL_MAP,
+                                   num_evs=cfg["num_evs"])
+
+    print("\n")
+    print("=" * 62)
+    print("  【3/4】DQN 策略评估")
     print("=" * 62)
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
@@ -196,14 +204,15 @@ def cmd_evaluate(args):
 
     print("\n")
     print("=" * 62)
-    print("  【3/3】联邦 DQN 策略评估")
+    print("  【4/4】联邦 DQN 策略评估")
     print("=" * 62)
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_federated_dqn_real.pth",
                                 num_evs=cfg["num_evs"])
 
-    _compare_table({"Random": random_report, "DQN": dqn_report, "FedDQN": fed_report})
+    _compare_table({"Random": random_report, "Greedy": greedy_report,
+                    "DQN": dqn_report, "FedDQN": fed_report})
 
 
 def cmd_download_map(_args):
