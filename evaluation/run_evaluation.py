@@ -51,7 +51,7 @@ def _greedy_action(stations, ev, action_mask, pending_counts):
 
 
 def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
-                   use_real_map=True, model_file=None, num_evs=100):
+                   use_real_map=True, model_file=None, num_evs=100, num_stations=4):
     """
     运行评估。
 
@@ -75,7 +75,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
             print(f"[环境] 加载真实路网: {graphml_path}")
             env = RealTrafficEnv(
                 graphml_file=graphml_path,
-                num_stations=2,
+                num_stations=num_stations,
                 num_evs=num_evs,
                 max_nodes=REAL_MAP_MAX_NODES,
                 seed=42
@@ -133,10 +133,10 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         if use_real_map:
             env = RealTrafficEnv(
                 graphml_file=graphml_path,
-                num_stations=2,
+                num_stations=num_stations,
                 num_evs=num_evs,
                 max_nodes=REAL_MAP_MAX_NODES,
-                seed=rng.randint(0, 10000) # 每次评估换个种子改变EV初始位置
+                seed=rng.randint(0, 10000)
             )
         else:
             env = TrafficPowerEnv(num_evs=num_evs)
@@ -161,7 +161,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
                     action_mask = env.get_action_mask(ev)
                     action = _greedy_action(env.stations, ev, action_mask, pending_counts)
                 else:
-                    action = rng.choice([0, 1])
+                    action = rng.randint(0, len(env.stations) - 1)
                 actions[ev.id] = action
                 pending_counts[action] += 1
 

@@ -40,7 +40,7 @@ PLACE = "Wuchang District, Wuhan, China"
 # —— 路网规模 ——
 MAX_NODES = 9999
 NUM_EVS = 100
-NUM_STATS = 2
+NUM_STATS = 4
 
 EPISODES = 500
 STEPS_PER_EP = 1000

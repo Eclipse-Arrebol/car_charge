@@ -145,8 +145,11 @@ def cmd_train_real(args):
     """联邦 DQN 训练（真实路网 + 可视化）"""
     from visualization.run_training_real_map import run_training_real
     cfg = _resolve_scale(args.command, args.debug, args.medium)
-    # epsilon 目标终值：episodes 少时衰减要更激进
-    epsilon_final = 0.30 if args.debug else (0.10 if args.medium else 0.05)
+    # epsilon 目标终值：
+    #   debug(20ep)  → 0.80，保持充分探索
+    #   medium(100ep)→ 0.90，基本随机（episode 太少，过早利用反而变差）
+    #   full(500ep)  → 0.10，500 个 episode 足够完成探索→利用过渡
+    epsilon_final = 0.80 if args.debug else (0.90 if args.medium else 0.10)
     run_training_real(
         num_evs=cfg["num_evs"],
         episodes=cfg["episodes"],
@@ -187,7 +190,7 @@ def cmd_evaluate(args):
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_random=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"])
+                                   num_evs=cfg["num_evs"], num_stations=4)
 
     print("\n")
     print("=" * 62)
@@ -195,7 +198,7 @@ def cmd_evaluate(args):
     print("=" * 62)
     greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_greedy=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"])
+                                   num_evs=cfg["num_evs"], num_stations=4)
 
     print("\n")
     print("=" * 62)
@@ -204,7 +207,7 @@ def cmd_evaluate(args):
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth",
-                                num_evs=cfg["num_evs"])
+                                num_evs=cfg["num_evs"], num_stations=4)
 
     print("\n")
     print("=" * 62)
@@ -213,7 +216,7 @@ def cmd_evaluate(args):
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_federated_dqn_real.pth",
-                                num_evs=cfg["num_evs"])
+                                num_evs=cfg["num_evs"], num_stations=4)
 
     _compare_table({"Random": random_report, "Greedy": greedy_report,
                     "DQN": dqn_report, "FedDQN": fed_report})
