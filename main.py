@@ -145,6 +145,8 @@ def cmd_train_real(args):
     """联邦 DQN 训练（真实路网 + 可视化）"""
     from visualization.run_training_real_map import run_training_real
     cfg = _resolve_scale(args.command, args.debug, args.medium)
+    # epsilon 目标终值：episodes 少时衰减要更激进
+    epsilon_final = 0.30 if args.debug else (0.10 if args.medium else 0.05)
     run_training_real(
         num_evs=cfg["num_evs"],
         episodes=cfg["episodes"],
@@ -152,6 +154,7 @@ def cmd_train_real(args):
         fed_rounds_per_episode=cfg["fed_rounds"],
         batch_size=cfg["batch_size"],
         use_dp=args.dp,
+        epsilon_final=epsilon_final,
     )
 
 

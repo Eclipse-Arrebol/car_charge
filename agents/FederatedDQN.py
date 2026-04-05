@@ -91,7 +91,7 @@ class FederatedClient:
         # 探索参数
         self.epsilon = 1.0
         self.epsilon_min = 0.05
-        self.epsilon_decay = 0.9999
+        self.epsilon_decay = 0.9999  # 由外部按 episodes 动态计算后传入
 
         self.target_update_freq = 100
         self.train_step_count = 0

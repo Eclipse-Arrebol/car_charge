@@ -89,6 +89,7 @@ def run_training_real(
     use_dp=False,
     dp_noise_multiplier=1.0,
     dp_clip_C=1.0,
+    epsilon_final=0.10,
 ):
     if LOCAL_GRAPHML is not None:
         print(f"[模式 B] 使用本地 GraphML 文件: {LOCAL_GRAPHML}")
@@ -100,6 +101,10 @@ def run_training_real(
     env0 = _create_real_env(num_evs=num_evs, seed=42)
     env1 = _create_real_env(num_evs=num_evs, seed=123)
     client_envs = [env0, env1]
+
+    # epsilon 衰减率：确保训练结束时 ε 降到 epsilon_final
+    epsilon_decay = max(0.90, epsilon_final ** (1.0 / max(episodes, 1)))
+    print(f"[Epsilon] decay={epsilon_decay:.6f}，{episodes} episodes 后 ε≈{epsilon_final}")
 
     fed_server = FederatedServer(
         num_features=15,
@@ -123,6 +128,7 @@ def run_training_real(
             dp_clip_C=dp_clip_C,
             dp_sample_rate=dp_sample_rate,
         )
+        client.epsilon_decay = epsilon_decay
         fed_server.register_client(client)
 
     fed_server.distribute_global_model()
