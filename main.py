@@ -30,7 +30,7 @@ def _resolve_scale(command, debug, medium):
             "num_evs": 20,
             "steps": 200,
             "episodes": 100,
-            "fed_rounds": 20,
+            "fed_rounds": 5,
             "batch_size": 32,
         }
     defaults = {
