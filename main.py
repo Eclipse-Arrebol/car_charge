@@ -151,6 +151,7 @@ def cmd_train_real(args):
         steps_per_episode=cfg["steps"],
         fed_rounds_per_episode=cfg["fed_rounds"],
         batch_size=cfg["batch_size"],
+        use_dp=args.dp,
     )
 
 
@@ -251,6 +252,11 @@ if __name__ == "__main__":
         "--medium",
         action="store_true",
         help="启用中等规模测试参数",
+    )
+    parser.add_argument(
+        "--dp",
+        action="store_true",
+        help="启用差分隐私训练 (DP-SGD)",
     )
     args = parser.parse_args()
     COMMANDS[args.command](args)

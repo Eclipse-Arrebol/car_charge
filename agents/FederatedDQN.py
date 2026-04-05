@@ -25,6 +25,12 @@ from collections import deque, OrderedDict
 
 from agents.GraphQNetwork import GraphQNetwork
 
+try:
+    from opacus.accountants import RDPAccountant
+    _OPACUS_AVAILABLE = True
+except ImportError:
+    _OPACUS_AVAILABLE = False
+
 
 def _clone_data_to_cpu(data):
     """Keep replay-buffer graph samples on CPU to avoid mixed-device batches."""
@@ -42,12 +48,25 @@ class FederatedClient:
 
     def __init__(self, client_id, num_features, num_actions,
                  station_node_ids=None, num_nodes_per_graph=9,
-                 lr=0.0003, memory_size=20000, proximal_mu=1e-4):
+                 lr=0.0003, memory_size=20000, proximal_mu=1e-4,
+                 use_dp=False, dp_noise_multiplier=1.0, dp_clip_C=1.0,
+                 dp_delta=1e-5, dp_sample_rate=0.01):
         self.client_id = client_id
         self.num_actions = num_actions
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.proximal_mu = proximal_mu
         self.lr = lr
+
+        # 差分隐私参数
+        self.use_dp = use_dp and _OPACUS_AVAILABLE
+        self.dp_noise_multiplier = dp_noise_multiplier  # σ，越大隐私越强
+        self.dp_clip_C = dp_clip_C                      # 梯度裁剪范数 C
+        self.dp_delta = dp_delta                         # (ε,δ)-DP 中的 δ
+        self.dp_sample_rate = dp_sample_rate             # q = batch_size / 数据集大小
+        if self.use_dp:
+            self._privacy_accountant = RDPAccountant()
+        elif use_dp and not _OPACUS_AVAILABLE:
+            print(f"[FedClient {client_id}] 警告: opacus 未安装，DP 已跳过")
 
         # 本地策略网络 + 目标网络
         self.policy_net = GraphQNetwork(
@@ -205,7 +224,25 @@ class FederatedClient:
 
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
+
+            if self.use_dp:
+                # DP-SGD: 裁剪到 C，再注入高斯噪声 N(0, (σC/batch)²)
+                torch.nn.utils.clip_grad_norm_(
+                    self.policy_net.parameters(), max_norm=self.dp_clip_C
+                )
+                for param in self.policy_net.parameters():
+                    if param.grad is not None:
+                        noise = torch.randn_like(param.grad) * (
+                            self.dp_noise_multiplier * self.dp_clip_C / len(minibatch)
+                        )
+                        param.grad.add_(noise)
+                self._privacy_accountant.step(
+                    noise_multiplier=self.dp_noise_multiplier,
+                    sample_rate=self.dp_sample_rate,
+                )
+            else:
+                torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10.0)
+
             self.optimizer.step()
             self.local_train_call_count += 1
             if self.verbose and self.local_train_call_count % 10 == 0:
@@ -218,6 +255,13 @@ class FederatedClient:
             self.train_step_count += 1
             if self.train_step_count % self.target_update_freq == 0:
                 self.target_net.load_state_dict(self.policy_net.state_dict())
+
+    def get_privacy_spent(self):
+        """返回当前累积的 (ε, δ) 隐私预算；未启用 DP 时返回 None"""
+        if not self.use_dp:
+            return None
+        eps = self._privacy_accountant.get_epsilon(delta=self.dp_delta)
+        return {"epsilon": round(eps, 4), "delta": self.dp_delta}
 
     def reset_round_counter(self):
         """每个联邦轮次开始时重置样本计数"""

@@ -85,6 +85,10 @@ def run_training_real(
     steps_per_episode=STEPS_PER_EP,
     fed_rounds_per_episode=FED_ROUNDS_PER_EP,
     batch_size=BATCH_SIZE,
+    proximal_mu=0.01,
+    use_dp=False,
+    dp_noise_multiplier=1.0,
+    dp_clip_C=1.0,
 ):
     if LOCAL_GRAPHML is not None:
         print(f"[模式 B] 使用本地 GraphML 文件: {LOCAL_GRAPHML}")
@@ -106,13 +110,18 @@ def run_training_real(
     )
 
     for i, client_env in enumerate(client_envs):
+        dp_sample_rate = batch_size / 20000  # q = batch / replay_buffer_size
         client = FederatedClient(
             client_id=i,
             num_features=15,
             num_actions=client_env.num_stations,
             station_node_ids=client_env.station_node_ids,
             num_nodes_per_graph=client_env.num_nodes,
-            proximal_mu=1e-4,
+            proximal_mu=proximal_mu,
+            use_dp=use_dp,
+            dp_noise_multiplier=dp_noise_multiplier,
+            dp_clip_C=dp_clip_C,
+            dp_sample_rate=dp_sample_rate,
         )
         fed_server.register_client(client)
 
@@ -231,6 +240,13 @@ def run_training_real(
     save_path = os.path.join(project_root, "checkpoints", "trained_federated_dqn_real.pth")
     fed_server.save_global_model(path=save_path)
     print(f"\n联邦训练完成！全局模型已保存: {save_path}")
+
+    if use_dp:
+        print("\n[差分隐私] 训练结束后的隐私预算:")
+        for client in fed_server.clients:
+            budget = client.get_privacy_spent()
+            if budget:
+                print(f"  Client {client.client_id}: ε={budget['epsilon']:.4f}, δ={budget['delta']}")
 
 
 if __name__ == "__main__":
