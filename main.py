@@ -43,7 +43,7 @@ def _resolve_scale(command, debug, medium):
         },
         "train-real": {
             "num_evs": 100,
-            "steps": 1000,
+            "steps": 300,
             "episodes": 500,
             "fed_rounds": 1,
             "batch_size": 64,
@@ -57,7 +57,7 @@ def _resolve_scale(command, debug, medium):
         },
         "evaluate": {
             "num_evs": 100,
-            "steps": 1000,
+            "steps": 300,
             "episodes": 5,
             "fed_rounds": 1,
             "batch_size": 64,
@@ -266,4 +266,3 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     COMMANDS[args.command](args)
-
