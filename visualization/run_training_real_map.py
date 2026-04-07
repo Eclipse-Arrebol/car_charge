@@ -145,6 +145,8 @@ def run_training_real(
         avg_queue_sum = 0.0
         overload_count = 0
         total_realized = 0.0
+        total_mixed_reward = 0.0
+        total_decisions = 0
         episode_start_time = time.time()
 
         for env in client_envs:
@@ -186,6 +188,8 @@ def run_training_real(
                     client.store_transition(
                         ev_state, act, mixed_r, next_ev_state, action_mask=mask
                     )
+                    total_mixed_reward += mixed_r
+                    total_decisions += 1
 
                 client.local_train(batch_size, num_steps=STEP_LOCAL_TRAIN_STEPS)
 
@@ -222,9 +226,10 @@ def run_training_real(
         _finish_progress_line()
 
         avg_queue = avg_queue_sum / (steps_per_episode * len(client_envs))
+        avg_mixed_reward = total_mixed_reward / max(1, total_decisions)
         viz.add_episode_data(
             episode=e + 1,
-            reward=total_reward,
+            reward=avg_mixed_reward,
             epsilon=min(c.epsilon for c in fed_server.clients),
             avg_queue=avg_queue,
             overload_count=overload_count,

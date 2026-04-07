@@ -47,26 +47,26 @@ class TrainingVisualizer:
         if overload_count is not None:
             self.grid_overloads.append(overload_count)
     
-    def plot_training_curves(self, window_size=10):
+    def plot_training_curves(self, window_size=20):
         """绘制训练曲线（奖励、epsilon等）"""
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        fig.suptitle('DQN训练过程可视化', fontsize=16, fontweight='bold')
-        
+        fig.suptitle('FedDQN Training Curves', fontsize=16, fontweight='bold')
+
         # 1. 奖励曲线
         ax1 = axes[0, 0]
-        ax1.plot(self.episodes, self.rewards, alpha=0.3, color='blue', label='原始奖励')
-        
+        ax1.plot(self.episodes, self.rewards, alpha=0.2, color='steelblue', label='Per-episode')
+
         # 计算滑动平均
         if len(self.rewards) >= window_size:
-            moving_avg = np.convolve(self.rewards, 
-                                    np.ones(window_size)/window_size, 
+            moving_avg = np.convolve(self.rewards,
+                                    np.ones(window_size)/window_size,
                                     mode='valid')
-            ax1.plot(self.episodes[window_size-1:], moving_avg, 
-                    color='red', linewidth=2, label=f'{window_size}轮平均')
-        
-        ax1.set_xlabel('训练轮数 (Episode)')
-        ax1.set_ylabel('总奖励')
-        ax1.set_title('训练奖励曲线')
+            ax1.plot(self.episodes[window_size-1:], moving_avg,
+                    color='navy', linewidth=2.5, label=f'Moving avg (w={window_size})')
+
+        ax1.set_xlabel('Episode')
+        ax1.set_ylabel('Avg Reward per EV Decision')
+        ax1.set_title('Training Reward Curve')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
