@@ -38,8 +38,8 @@ OFFLINE_FALLBACK = False
 PLACE = "Wuchang District, Wuhan, China"
 
 # —— 路网规模 ——
-MAX_NODES = 9999
-NUM_EVS = 100
+MAX_NODES = 200
+NUM_EVS = 200
 NUM_STATS = 4
 
 EPISODES = 500
