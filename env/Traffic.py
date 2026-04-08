@@ -25,7 +25,7 @@ class EV:
         self.id = ev_id
         self.curr_node = start_node
         self.target_station_idx = None
-        self.soc = random.uniform(5.0, 35.0)
+        self.soc = random.uniform(20.0, 50.0)
         self.target_soc = 0.95
         self.battery_capacity_kwh = 60.0
         self.charge_efficiency = 0.92
@@ -382,6 +382,8 @@ class ChargingStation:
             if ev.soc >= 95.0:
                 ev.status = "IDLE"
                 ev.charge_sessions += 1
+                # 模拟 EV 充完后驶离：随机重置 SOC，形成持续充电需求
+                ev.soc = random.uniform(20.0, 50.0)
                 finished.append(ev)
 
         for ev in finished:
@@ -638,6 +640,8 @@ class TrafficPowerEnv:
 
     def _estimate_ev_station_metrics(self, ev, station, pending_counts=None):
         pending = 0 if pending_counts is None else pending_counts.get(station.id, 0)
+        if not hasattr(self, '_path_cache_step'):
+            self._path_cache_step = {}
         cache_key = (ev.curr_node, station.traffic_node_id)
         cached = self._path_cache_step.get(cache_key)
         if cached is not None:
@@ -800,7 +804,7 @@ class TrafficPowerEnv:
         self.time_step += 1
         self.edge_step_counts = {}
         self.edge_peak_counts = {}
-        self._path_cache_step = {}  # 清空步内路径缓存
+        self._path_cache_step: dict = {}  # 清空步内路径缓存
         grid_loads = {station.power_node_id: 0.0 for station in self.stations}
         decision_metrics = {}
         pending_counts = {s.id: 0 for s in self.stations}
