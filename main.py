@@ -16,7 +16,15 @@ import sys
 import os
 
 
-def _resolve_scale(command, debug, medium):
+def _resolve_scale(command, debug, medium, quick=False):
+    if quick:
+        return {
+            "num_evs": 50,
+            "steps": 100,
+            "episodes": 60,
+            "fed_rounds": 1,
+            "batch_size": 32,
+        }
     if debug:
         return {
             "num_evs": 10,
@@ -73,7 +81,12 @@ def _resolve_scale(command, debug, medium):
     return defaults[command]
 
 
-def _resolve_evaluation_scale(debug, medium):
+def _resolve_evaluation_scale(debug, medium, quick=False):
+    if quick:
+        return {
+            "episodes": 5,
+            "steps": 100,
+        }
     if debug:
         return {
             "episodes": 5,
@@ -144,12 +157,20 @@ def cmd_train(args):
 def cmd_train_real(args):
     """联邦 DQN 训练（真实路网 + 可视化）"""
     from visualization.run_training_real_map import run_training_real
-    cfg = _resolve_scale(args.command, args.debug, args.medium)
+    cfg = _resolve_scale(args.command, args.debug, args.medium, args.quick)
     # epsilon 目标终值：
     #   debug(20ep)  → 0.80，保持充分探索
+    #   quick(60ep)  → 0.30，能看出策略是否收敛
     #   medium(100ep)→ 0.90，基本随机（episode 太少，过早利用反而变差）
     #   full(500ep)  → 0.10，500 个 episode 足够完成探索→利用过渡
-    epsilon_final = 0.80 if args.debug else (0.90 if args.medium else 0.10)
+    if args.debug:
+        epsilon_final = 0.80
+    elif args.quick:
+        epsilon_final = 0.30
+    elif args.medium:
+        epsilon_final = 0.90
+    else:
+        epsilon_final = 0.10
     run_training_real(
         num_evs=cfg["num_evs"],
         episodes=cfg["episodes"],
@@ -175,8 +196,8 @@ def cmd_train_viz(args):
 def cmd_evaluate(args):
     """评估已训练模型（随机 / 贪心 / DQN / 联邦DQN 四方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
-    cfg = _resolve_scale(args.command, args.debug, args.medium)
-    eval_cfg = _resolve_evaluation_scale(args.debug, args.medium)
+    cfg = _resolve_scale(args.command, args.debug, args.medium, args.quick)
+    eval_cfg = _resolve_evaluation_scale(args.debug, args.medium, args.quick)
 
     USE_REAL_MAP = True
     EPISODES = eval_cfg["episodes"]
@@ -258,6 +279,11 @@ if __name__ == "__main__":
         "--medium",
         action="store_true",
         help="启用中等规模测试参数",
+    )
+    mode_group.add_argument(
+        "--quick",
+        action="store_true",
+        help="极速验证模式：50辆EV，60 episodes，epsilon→0.30，约10分钟",
     )
     parser.add_argument(
         "--dp",

@@ -192,17 +192,6 @@ def load_road_network_from_file(
     else:
         raise ValueError(f"不支持的文件格式 '{ext}'，请使用 .graphml 或 .osm")
 
-    # 合并邻近路口节点（加速 GNN 推理）
-    # download_map.py 已用 tolerance=15m 合并过一次；此处用 20m 进一步精简。
-    try:
-        before = G_raw.number_of_nodes()
-        G_raw = ox.consolidate_intersections(
-            G_raw, rebuild_graph=True, tolerance=20, dead_ends=False
-        )
-        print(f"[LocalFile] 路口合并: {before} → {G_raw.number_of_nodes()} 节点")
-    except Exception as e:
-        print(f"[LocalFile] 路口合并跳过 ({e})")
-
     G_undirected = ox.convert.to_undirected(G_raw)
     # convert_node_labels_to_integers 兼容 consolidate_intersections 产生的 frozenset 节点 ID
     G_undirected = nx.convert_node_labels_to_integers(G_undirected)
