@@ -157,6 +157,8 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.prev_total_load = 0.0
         self.edge_index = self._build_edge_index()
 
+        self._path_cache_step: dict = {}
+
         print(f"[RealTrafficEnv] nodes={self.num_nodes}, "
               f"station_nodes={station_nodes}, EVs={num_evs})")
 
