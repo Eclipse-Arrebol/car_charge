@@ -9,12 +9,28 @@
 
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib import font_manager
 import numpy as np
 import json
 import os
 
 # 设置中文字体支持
-matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
+_FONT_CANDIDATES = [
+    'SimHei',
+    'Microsoft YaHei',
+    'Microsoft JhengHei',
+    'Noto Sans CJK SC',
+    'Source Han Sans SC',
+    'WenQuanYi Zen Hei',
+    'Arial Unicode MS',
+    'DejaVu Sans',
+]
+_INSTALLED_FONTS = {font.name for font in font_manager.fontManager.ttflist}
+_AVAILABLE_FONTS = [name for name in _FONT_CANDIDATES if name in _INSTALLED_FONTS]
+if not _AVAILABLE_FONTS:
+    _AVAILABLE_FONTS = ['DejaVu Sans']
+
+matplotlib.rcParams['font.sans-serif'] = _AVAILABLE_FONTS
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 

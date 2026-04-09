@@ -52,7 +52,7 @@ def _resolve_scale(command, debug, medium, quick=False):
         },
         "train-real": {
             "num_evs": 100,
-            "steps": 300,
+            "steps": 1000,
             "episodes": 500,
             "fed_rounds": 1,
             "batch_size": 64,
@@ -179,6 +179,7 @@ def cmd_train_real(args):
         fed_rounds_per_episode=cfg["fed_rounds"],
         batch_size=cfg["batch_size"],
         use_dp=args.dp,
+        dp_noise_multiplier=args.dp_sigma,
         epsilon_final=epsilon_final,
     )
 
@@ -295,6 +296,12 @@ if __name__ == "__main__":
         "--dp",
         action="store_true",
         help="启用差分隐私训练 (DP-SGD)",
+    )
+    parser.add_argument(
+        "--dp-sigma",
+        type=float,
+        default=1.0,
+        help="DP-SGD 高斯噪声倍率 sigma，默认 1.0",
     )
     args = parser.parse_args()
     COMMANDS[args.command](args)
