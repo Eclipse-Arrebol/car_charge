@@ -61,7 +61,7 @@ class UserMetrics:
         wait_steps   = np.array([ev.wait_steps   for ev in evs], dtype=float)
         charge_steps = np.array([ev.charge_steps  for ev in evs], dtype=float)
         travel_hours = np.array([getattr(ev, "travel_time_h", ev.travel_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
-        wait_hours   = np.array([getattr(ev, "wait_time_h", ev.wait_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
+        wait_hours   = wait_steps * self.p.STEP_DURATION_H
         charge_hours = np.array([getattr(ev, "charge_time_h", ev.charge_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
         fees_paid    = np.array([ev.total_fee_paid for ev in evs], dtype=float)
         sessions     = np.array([ev.charge_sessions for ev in evs], dtype=float)
@@ -83,7 +83,7 @@ class UserMetrics:
 
         # --- 平均等待时间 (min) ---
         # 仅统计有过充电行为的车
-        active_mask = sessions > 0
+        active_mask = wait_steps > 0
         if active_mask.any():
             avg_wait_min = float(np.mean(wait_hours[active_mask]) * 60)
         else:

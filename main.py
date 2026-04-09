@@ -14,6 +14,7 @@ EV 充电调度强化学习系统 — 统一入口
 import argparse
 import sys
 import os
+import random
 
 
 def _resolve_scale(command, debug, medium, quick=False):
@@ -202,6 +203,7 @@ def cmd_evaluate(args):
     USE_REAL_MAP = True
     EPISODES = eval_cfg["episodes"]
     STEPS = eval_cfg["steps"]
+    episode_seeds = [random.randint(0, 10000) for _ in range(EPISODES)]
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
@@ -211,7 +213,8 @@ def cmd_evaluate(args):
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_random=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"], num_stations=4)
+                                   num_evs=cfg["num_evs"], num_stations=4,
+                                   episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
@@ -219,7 +222,8 @@ def cmd_evaluate(args):
     print("=" * 62)
     greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                    use_greedy=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"], num_stations=4)
+                                   num_evs=cfg["num_evs"], num_stations=4,
+                                   episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
@@ -228,7 +232,8 @@ def cmd_evaluate(args):
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth",
-                                num_evs=cfg["num_evs"], num_stations=4)
+                                num_evs=cfg["num_evs"], num_stations=4,
+                                episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
@@ -237,7 +242,8 @@ def cmd_evaluate(args):
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
                                 model_file="trained_federated_dqn_real.pth",
-                                num_evs=cfg["num_evs"], num_stations=4)
+                                num_evs=cfg["num_evs"], num_stations=4,
+                                episode_seeds=episode_seeds)
 
     _compare_table({"Random": random_report, "Greedy": greedy_report,
                     "DQN": dqn_report, "FedDQN": fed_report})

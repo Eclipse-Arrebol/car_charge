@@ -220,6 +220,7 @@ class ChargingStation:
         # 上一步的优化结果，供外部读取
         self.last_power_allocation = {}   # {ev_id: power_kW}
         self.last_total_load = 0.0        # 站级总负荷
+        self.last_billing_price = self.current_price
         self.predicted_arrivals = 0.0
         self.arrival_ema_alpha = 0.3
 
@@ -317,7 +318,8 @@ class ChargingStation:
 
         upper_bounds = np.array([
             min(self.max_charger_power,
-                max(0.0, 100.0 - ev.soc) / 5.0 * self.max_charger_power)
+                max(0.0, (100.0 - ev.soc) / 100.0 * ev.battery_capacity_kwh) /
+                max(1e-6, ev.charge_efficiency))
             for ev in self.connected_evs
         ], dtype=float)
 
@@ -368,15 +370,17 @@ class ChargingStation:
         allocation = self.optimize_power()
 
         # 3. 按功率更新 SOC，充满离桩，记录费用
+        self.last_billing_price = self.current_price
         finished = []
         for ev in self.connected_evs:
             power = allocation.get(ev.id, 0.0)
-            soc_increment = (power / max(1e-6, self.max_charger_power)) * 5.0
+            energy_kwh = power * 1.0
+            soc_increment = (energy_kwh * ev.charge_efficiency / ev.battery_capacity_kwh) * 100.0
             ev.soc = min(100.0, ev.soc + soc_increment)
             realized_power += power
 
             # 记录充电费用: 功率(kWh) × 当前电价(CNY/kWh)
-            ev.total_fee_paid += power * self.current_price / max(1e-6, self.max_charger_power)
+            ev.total_fee_paid += power * self.current_price
             ev.total_energy_charged += power
 
             if ev.soc >= 95.0:
@@ -466,6 +470,7 @@ class TrafficPowerEnv:
         ev.current_edge_from = None
         ev.current_edge_target = None
         ev.remaining_edge_time_h = 0.0
+        ev.wait_time_h = 0.0
         ev.current_edge_speed_kph = 0.0
 
     @staticmethod
@@ -822,9 +827,6 @@ class TrafficPowerEnv:
         for ev in self.evs:
             if ev.status == "IDLE":
                 ev.soc -= 0.5
-                neighbors = list(self.traffic_graph.neighbors(ev.curr_node))
-                if neighbors: ev.curr_node = random.choice(neighbors)
-
                 if ev.id in actions:
                     target_id = actions[ev.id]
                     target_station = self.stations[target_id]
@@ -845,6 +847,9 @@ class TrafficPowerEnv:
                             ev.current_edge_speed_kph = 0.0
                     except:
                         pass
+                else:
+                    neighbors = list(self.traffic_graph.neighbors(ev.curr_node))
+                    if neighbors: ev.curr_node = random.choice(neighbors)
 
             elif ev.status == "MOVING_TO_CHARGE":
                 ev.travel_steps += 1
@@ -860,6 +865,7 @@ class TrafficPowerEnv:
                     else:
                         target_station.queue.append(ev)
                         ev.status = "WAITING"
+                        ev.wait_time_h = 0.0
                         arrivals_this_step[target_station.id] += 1
 
             elif ev.status == "WAITING":
@@ -898,7 +904,7 @@ class TrafficPowerEnv:
         # --- 5. 联合优化目标 → 奖励 ---
         user_cost = sum(m["generalized_cost"] for m in decision_metrics.values())
         queue_cost = sum(m["queue_time_h"] for m in decision_metrics.values())
-        grid_cost = sum(st.current_price * st.last_total_load for st in self.stations) + 20.0 * self.power_grid.total_loss
+        grid_cost = sum(st.last_billing_price * st.last_total_load for st in self.stations) + 20.0 * self.power_grid.total_loss
         fluct_cost = (total_realized_power - self.prev_total_load) ** 2
         voltage_penalty = 10.0 * len(self.power_grid.voltage_violations)
 

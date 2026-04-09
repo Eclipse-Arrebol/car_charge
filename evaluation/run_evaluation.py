@@ -50,8 +50,24 @@ def _greedy_action(stations, ev, action_mask, pending_counts):
     return best_action
 
 
+def _random_valid_action(stations, action_mask):
+    valid = [i for i in range(len(stations)) if action_mask[0, i].item()]
+    return rng.choice(valid) if valid else 0
+
+
+def _strategy_name(use_random, use_greedy, model_file):
+    if use_random:
+        return "random"
+    if use_greedy:
+        return "greedy"
+    if model_file and "federated" in model_file.lower():
+        return "feddqn"
+    return "dqn"
+
+
 def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
-                   use_real_map=True, model_file=None, num_evs=100, num_stations=4):
+                   use_real_map=True, model_file=None, num_evs=100, num_stations=4,
+                   episode_seeds=None):
     """
     运行评估。
 
@@ -126,6 +142,12 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
             
         agent.epsilon = 0.02  # 近乎纯利用，保留微量随机打破 Q 值退化
 
+    if episode_seeds is None:
+        episode_seeds = [rng.randint(0, 10000) for _ in range(episodes)]
+    elif len(episode_seeds) != episodes:
+        raise ValueError(f"episode_seeds length {len(episode_seeds)} != episodes {episodes}")
+
+    strategy_name = _strategy_name(use_random, use_greedy, model_file)
     all_reports = []
 
     for ep in range(episodes):
@@ -136,7 +158,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
                 num_stations=num_stations,
                 num_evs=num_evs,
                 max_nodes=REAL_MAP_MAX_NODES,
-                seed=rng.randint(0, 10000)
+                seed=episode_seeds[ep]
             )
         else:
             env = TrafficPowerEnv(num_evs=num_evs)
@@ -161,7 +183,8 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
                     action_mask = env.get_action_mask(ev)
                     action = _greedy_action(env.stations, ev, action_mask, pending_counts)
                 else:
-                    action = rng.randint(0, len(env.stations) - 1)
+                    action_mask = env.get_action_mask(ev)
+                    action = _random_valid_action(env.stations, action_mask)
                 actions[ev.id] = action
                 pending_counts[action] += 1
 
@@ -190,7 +213,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
     # 保存结果
     save_dir = os.path.join(project_root, "evaluation", "results")
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, "evaluation_report.json")
+    save_path = os.path.join(save_dir, f"evaluation_report_{strategy_name}.json")
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=4, ensure_ascii=False)
     print(f"\n评估结果已保存: {save_path}")
@@ -231,6 +254,7 @@ if __name__ == "__main__":
     USE_REAL_MAP = True
     EPISODES = 50
     STEPS = 1000
+    episode_seeds = [rng.randint(0, 10000) for _ in range(EPISODES)]
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
@@ -239,14 +263,16 @@ if __name__ == "__main__":
     print("  【1/4】随机策略基线")
     print("=" * 62)
     random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                   use_random=True, use_real_map=USE_REAL_MAP)
+                                   use_random=True, use_real_map=USE_REAL_MAP,
+                                   episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
     print("  【2/4】贪心策略基线")
     print("=" * 62)
     greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                   use_greedy=True, use_real_map=USE_REAL_MAP)
+                                   use_greedy=True, use_real_map=USE_REAL_MAP,
+                                   episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
@@ -254,7 +280,8 @@ if __name__ == "__main__":
     print("=" * 62)
     dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth")
+                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth",
+                                episode_seeds=episode_seeds)
 
     print("\n")
     print("=" * 62)
@@ -262,7 +289,8 @@ if __name__ == "__main__":
     print("=" * 62)
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_federated_dqn_real.pth")
+                                model_file="trained_federated_dqn_real.pth",
+                                episode_seeds=episode_seeds)
 
     _compare_table({"Random": random_report, "Greedy": greedy_report,
                     "DQN": dqn_report, "FedDQN": fed_report})
