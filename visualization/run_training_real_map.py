@@ -50,6 +50,7 @@ STEP_TRAIN_INTERVAL = 1
 FED_LOCAL_STEPS = 4
 FED_ROUNDS_PER_EP = 1
 AGGREGATION_INTERVAL = 10
+CHECKPOINT_INTERVAL = 20
 # ============================================================
 
 
@@ -93,6 +94,7 @@ def run_training_real(
     dp_noise_multiplier=1.0,
     dp_clip_C=1.0,
     epsilon_final=0.10,
+    checkpoint_interval=CHECKPOINT_INTERVAL,
 ):
     if LOCAL_GRAPHML is not None:
         print(f"[模式 B] 使用本地 GraphML 文件: {LOCAL_GRAPHML}")
@@ -294,6 +296,13 @@ def run_training_real(
                 f"Queue={avg_queue:.2f}  "
                 f"ε={min(c.epsilon for c in fed_server.clients):.3f}"
             )
+
+        if checkpoint_interval > 0 and ((e + 1) % checkpoint_interval == 0):
+            ckpt_dir = os.path.join(project_root, "checkpoints")
+            os.makedirs(ckpt_dir, exist_ok=True)
+            ckpt_path = os.path.join(ckpt_dir, f"trained_federated_dqn_real_ep{e + 1}.pth")
+            fed_server.save_global_model(path=ckpt_path)
+            print(f"[Checkpoint] saved: {ckpt_path}")
 
     viz.plot_training_curves()
     viz.save_data()
