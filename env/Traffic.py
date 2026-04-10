@@ -38,6 +38,8 @@ class EV:
         self.current_edge_target = None  # 当前正在通过的下一跳节点
         self.remaining_edge_time_h = 0.0 # 当前边剩余通行时间 (小时)
         self.current_edge_speed_kph = 0.0
+        self.low_soc_triggered = False
+        self.charge_decision_pending = False
         self.assigned_station = None   # 当前路由目标站 ID
         self._decision_state = None    # 决策时刻的图状态快照 (用于延迟奖励)
         self._decision_snap = None     # 决策时刻的指标快照
@@ -386,6 +388,8 @@ class ChargingStation:
             if ev.soc >= 95.0:
                 ev.status = "IDLE"
                 ev.charge_sessions += 1
+                ev.low_soc_triggered = False
+                ev.charge_decision_pending = False
                 # 模拟 EV 充完后驶离：随机重置 SOC，形成持续充电需求
                 ev.soc = random.uniform(20.0, 50.0)
                 finished.append(ev)
@@ -407,6 +411,7 @@ class TrafficPowerEnv:
         self.traffic_graph = nx.grid_2d_graph(3, 3)
         self.traffic_graph = nx.convert_node_labels_to_integers(self.traffic_graph)
         self.num_evs = num_evs
+        self.charge_trigger_soc = 30.0
 
         self.stations = [
             ChargingStation(station_id=0, traffic_node_id=0, power_node_id='Grid_A'),
@@ -460,9 +465,8 @@ class TrafficPowerEnv:
         self.edge_peak_counts = {}
         return self.get_graph_state()
 
-    @staticmethod
-    def _reset_ev_charging_attempt(ev):
-        """Reset an EV to idle so it can pick a station again on the next step."""
+    def _reset_ev_charging_attempt(self, ev):
+        """Reset an EV to idle and re-open planning if it is still below the trigger SOC."""
         ev.status = "IDLE"
         ev.target_station_idx = None
         ev.assigned_station = None
@@ -472,6 +476,32 @@ class TrafficPowerEnv:
         ev.remaining_edge_time_h = 0.0
         ev.wait_time_h = 0.0
         ev.current_edge_speed_kph = 0.0
+        ev.charge_decision_pending = ev.soc < self.charge_trigger_soc
+        ev.low_soc_triggered = ev.soc < self.charge_trigger_soc
+
+    def should_request_charge_decision(self, ev):
+        """Event-triggered planning: request one decision when an EV first becomes low on charge."""
+        if ev.status != "IDLE":
+            return False
+
+        if ev.charge_decision_pending:
+            return True
+
+        if ev.soc >= self.charge_trigger_soc:
+            ev.low_soc_triggered = False
+            return False
+
+        if not ev.low_soc_triggered:
+            ev.low_soc_triggered = True
+            ev.charge_decision_pending = True
+            return True
+
+        return False
+
+    def get_pending_decision_evs(self):
+        pending_evs = [ev for ev in self.evs if self.should_request_charge_decision(ev)]
+        pending_evs.sort(key=lambda ev: ev.soc)
+        return pending_evs
 
     @staticmethod
     def _parse_speed_kph(speed_raw, default=50.0):
@@ -819,6 +849,7 @@ class TrafficPowerEnv:
         urgent_evs.sort(key=lambda item: item.soc)
         for ev in urgent_evs:
             station_id = actions[ev.id]
+            ev.charge_decision_pending = False
             metrics = self.estimate_action_metrics(ev, station_id, pending_counts=pending_counts)
             decision_metrics[ev.id] = metrics
             pending_counts[station_id] += 1
@@ -845,8 +876,17 @@ class TrafficPowerEnv:
                             ev.current_edge_target = None
                             ev.remaining_edge_time_h = 0.0
                             ev.current_edge_speed_kph = 0.0
+                        else:
+                            if len(target_station.queue) >= target_station.max_queue_len:
+                                self._reset_ev_charging_attempt(ev)
+                            else:
+                                target_station.queue.append(ev)
+                                ev.target_station_idx = target_id
+                                ev.status = "WAITING"
+                                ev.wait_time_h = 0.0
+                                arrivals_this_step[target_station.id] += 1
                     except:
-                        pass
+                        self._reset_ev_charging_attempt(ev)
                 else:
                     neighbors = list(self.traffic_graph.neighbors(ev.curr_node))
                     if neighbors: ev.curr_node = random.choice(neighbors)
@@ -979,9 +1019,8 @@ if __name__ == "__main__":
 
     for t in range(50):
         actions = {}
-        for ev in env.evs:
-            if ev.status == "IDLE" and ev.soc < 30.0:
-                actions[ev.id] = random.choice([0, 1])
+        for ev in env.get_pending_decision_evs():
+            actions[ev.id] = random.choice([0, 1])
 
         graph_state, reward, done, info = env.step(actions)
 

@@ -121,8 +121,7 @@ def cmd_train(args):
         env.reset()
         total_reward = 0
         for _ in range(steps_per_episode):
-            urgent_evs = [ev for ev in env.evs if ev.status == "IDLE" and ev.soc < 30.0]
-            urgent_evs.sort(key=lambda ev: ev.soc)
+            urgent_evs = env.get_pending_decision_evs()
             actions = {}
             ev_dispatch = []
             pending = {s.id: 0 for s in env.stations}

@@ -129,31 +129,28 @@ def _build_edge_info_suffix(filter_long_edges, removed, total, threshold):
 
 def choose_actions_heuristic(env):
     actions = {}
-    for ev in env.evs:
-        if ev.status == "IDLE" and ev.soc < 30.0:
-            best_id = None
-            best_score = None
-            for s in env.stations:
-                score = len(s.queue) + len(s.connected_evs) + s.current_price * 0.5
-                if best_score is None or score < best_score:
-                    best_score = score
-                    best_id = s.id
-            actions[ev.id] = best_id
+    for ev in env.get_pending_decision_evs():
+        best_id = None
+        best_score = None
+        for s in env.stations:
+            score = len(s.queue) + len(s.connected_evs) + s.current_price * 0.5
+            if best_score is None or score < best_score:
+                best_score = score
+                best_id = s.id
+        actions[ev.id] = best_id
     return actions
 
 
 def choose_actions_random(env):
     actions = {}
-    for ev in env.evs:
-        if ev.status == "IDLE" and ev.soc < 30.0:
-            actions[ev.id] = np.random.randint(0, len(env.stations))
+    for ev in env.get_pending_decision_evs():
+        actions[ev.id] = np.random.randint(0, len(env.stations))
     return actions
 
 
 def choose_actions_dqn(env, agent):
     actions = {}
-    urgent_evs = [ev for ev in env.evs if ev.status == "IDLE" and ev.soc < 30.0]
-    urgent_evs.sort(key=lambda ev: ev.soc)
+    urgent_evs = env.get_pending_decision_evs()
     pending_counts = {s.id: 0 for s in env.stations}
 
     for ev in urgent_evs:

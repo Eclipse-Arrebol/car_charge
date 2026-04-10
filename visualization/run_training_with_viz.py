@@ -33,9 +33,7 @@ def run_training(episodes=500, steps_per_episode=100, batch_size=64, num_evs=10)
         for _ in range(steps_per_episode):
 
             # --- 顺序决策: 按 SOC 从低到高排序, 逐个选站 ---
-            urgent_evs = [ev for ev in env.evs
-                          if ev.status == "IDLE" and ev.soc < 30.0]
-            urgent_evs.sort(key=lambda ev: ev.soc)
+            urgent_evs = env.get_pending_decision_evs()
 
             actions = {}
             ev_transitions = []

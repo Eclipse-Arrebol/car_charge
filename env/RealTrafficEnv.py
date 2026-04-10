@@ -120,6 +120,7 @@ class RealTrafficEnv(TrafficPowerEnv):
 
         self.traffic_graph = graph
         self.num_nodes = graph.number_of_nodes()
+        self.charge_trigger_soc = 30.0
         self.station_node_ids = station_nodes          # 供外部读取
         self.num_stations = num_stations
 

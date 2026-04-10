@@ -247,9 +247,7 @@ if __name__ == "__main__":
         for time_step in range(steps_per_episode):
 
             # --- A. 顺序决策：利用率导向奖励 + per-EV 状态 ---
-            urgent_evs = [ev for ev in env.evs
-                          if ev.status == "IDLE" and ev.soc < 30.0]
-            urgent_evs.sort(key=lambda ev: ev.soc)
+            urgent_evs = env.get_pending_decision_evs()
 
             actions = {}
             ev_dispatch = []       # (ev, ev_state, action, shaped_reward)

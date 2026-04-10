@@ -20,17 +20,16 @@ def infer_grid_positions(graph):
 
 def choose_actions(env):
     actions = {}
-    for ev in env.evs:
-        if ev.status == "IDLE" and ev.soc < 30.0:
-            # Heuristic: pick station with smaller (queue + price weight)
-            best_id = None
-            best_score = None
-            for s in env.stations:
-                score = len(s.queue) + s.current_price * 0.5
-                if best_score is None or score < best_score:
-                    best_score = score
-                    best_id = s.id
-            actions[ev.id] = best_id
+    for ev in env.get_pending_decision_evs():
+        # Heuristic: pick station with smaller (queue + price weight)
+        best_id = None
+        best_score = None
+        for s in env.stations:
+            score = len(s.queue) + s.current_price * 0.5
+            if best_score is None or score < best_score:
+                best_score = score
+                best_id = s.id
+        actions[ev.id] = best_id
     return actions
 
 

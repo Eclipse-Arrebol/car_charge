@@ -167,9 +167,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         for step in range(steps_per_episode):
 
             # --- 顺序决策: 按 SOC 从低到高, 逐个选站 ---
-            urgent_evs = [ev for ev in env.evs
-                          if ev.status == "IDLE" and ev.soc < 30.0]
-            urgent_evs.sort(key=lambda ev: ev.soc)
+            urgent_evs = env.get_pending_decision_evs()
 
             actions = {}
             pending_counts = {s.id: 0 for s in env.stations}
