@@ -40,7 +40,7 @@ def _resolve_scale(command, debug, medium, quick=False):
             "steps": 200,
             "episodes": 100,
             "fed_rounds": 5,
-            "batch_size": 128,
+            "batch_size": 256,
         }
     defaults = {
         "train": {
@@ -52,7 +52,7 @@ def _resolve_scale(command, debug, medium, quick=False):
         },
         "train-real": {
             "num_evs": 100,
-            "steps": 1000,
+            "steps": 500,
             "episodes": 500,
             "fed_rounds": 1,
             "batch_size": 64,
@@ -100,7 +100,7 @@ def _resolve_evaluation_scale(debug, medium, quick=False):
         }
     return {
         "episodes": 50,
-        "steps": 1000,
+        "steps": 500,
     }
 
 
@@ -182,7 +182,7 @@ def cmd_train_real(args):
         step_local_train_steps = 1
         step_train_interval = 2
 
-    full_batch_size = 128 if not (args.debug or args.quick or args.medium) else cfg["batch_size"]
+    full_batch_size = 256 if not (args.debug or args.quick or args.medium) else cfg["batch_size"]
 
     run_training_real(
         num_evs=cfg["num_evs"],
