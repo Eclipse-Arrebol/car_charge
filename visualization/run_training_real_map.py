@@ -46,6 +46,7 @@ EPISODES = 500
 STEPS_PER_EP = 1000
 BATCH_SIZE = 64
 STEP_LOCAL_TRAIN_STEPS = 2
+STEP_TRAIN_INTERVAL = 1
 FED_LOCAL_STEPS = 4
 FED_ROUNDS_PER_EP = 1
 AGGREGATION_INTERVAL = 10
@@ -85,6 +86,8 @@ def run_training_real(
     steps_per_episode=STEPS_PER_EP,
     fed_rounds_per_episode=FED_ROUNDS_PER_EP,
     batch_size=BATCH_SIZE,
+    step_local_train_steps=STEP_LOCAL_TRAIN_STEPS,
+    step_train_interval=STEP_TRAIN_INTERVAL,
     proximal_mu=0.01,
     use_dp=False,
     dp_noise_multiplier=1.0,
@@ -137,7 +140,11 @@ def run_training_real(
     network_desc = (LOCAL_GRAPHML or ("offline-synthetic" if OFFLINE_FALLBACK else PLACE))
     print(f"\nStart federated training (network: {network_desc})")
     print(f"nodes={env0.num_nodes}, stations={env0.station_node_ids}, EVs/client={num_evs}")
-    print(f"FL clients={len(fed_server.clients)}, local_steps={FED_LOCAL_STEPS}")
+    print(
+        f"FL clients={len(fed_server.clients)}, local_steps={FED_LOCAL_STEPS}, "
+        f"step_train_steps={step_local_train_steps}, step_train_interval={step_train_interval}, "
+        f"batch_size={batch_size}"
+    )
     print("client_env_seeds=[42, 123]\n")
 
     for e in range(episodes):
@@ -148,6 +155,13 @@ def run_training_real(
         total_mixed_reward = 0.0
         total_decisions = 0
         episode_start_time = time.time()
+        episode_decision_scan_s = 0.0
+        episode_action_build_s = 0.0
+        episode_env_step_s = 0.0
+        episode_store_s = 0.0
+        episode_step_train_s = 0.0
+        episode_fed_train_s = 0.0
+        episode_agg_s = 0.0
 
         for env in client_envs:
             env.reset()
@@ -156,12 +170,15 @@ def run_training_real(
             total_urgent = 0
 
             for client, env in zip(fed_server.clients, client_envs):
+                t0 = time.perf_counter()
                 urgent_evs = env.get_pending_decision_evs()
+                episode_decision_scan_s += time.perf_counter() - t0
 
                 actions = {}
                 ev_dispatch = []
                 pending_counts = {s.id: 0 for s in env.stations}
 
+                t0 = time.perf_counter()
                 for ev in urgent_evs:
                     ev_state = env.get_graph_state_for_ev(ev, pending_counts)
                     action_mask = env.get_action_mask(ev)
@@ -175,10 +192,14 @@ def run_training_real(
 
                     ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask))
                     pending_counts[action] += 1
+                episode_action_build_s += time.perf_counter() - t0
 
+                t0 = time.perf_counter()
                 _, reward, _, info = env.step(actions)
+                episode_env_step_s += time.perf_counter() - t0
 
                 global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
+                t0 = time.perf_counter()
                 for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
                     realized = info["decision_costs"].get(ev.id, {})
                     realized_cost = realized.get("generalized_cost", 0.0)
@@ -189,8 +210,16 @@ def run_training_real(
                     )
                     total_mixed_reward += mixed_r
                     total_decisions += 1
+                episode_store_s += time.perf_counter() - t0
 
-                client.local_train(batch_size, num_steps=STEP_LOCAL_TRAIN_STEPS)
+                should_step_train = (
+                    step_local_train_steps > 0
+                    and ((step_idx + 1) % max(1, step_train_interval) == 0)
+                )
+                if should_step_train:
+                    t0 = time.perf_counter()
+                    client.local_train(batch_size, num_steps=step_local_train_steps)
+                    episode_step_train_s += time.perf_counter() - t0
 
                 total_reward += reward
                 total_realized += info.get("realized_power", 0.0)
@@ -216,9 +245,13 @@ def run_training_real(
 
         for _ in range(fed_rounds_per_episode):
             for client in fed_server.clients:
+                t0 = time.perf_counter()
                 client.local_train(batch_size, num_steps=FED_LOCAL_STEPS)
+                episode_fed_train_s += time.perf_counter() - t0
+            t0 = time.perf_counter()
             fed_server.aggregate()
             fed_server.distribute_global_model()
+            episode_agg_s += time.perf_counter() - t0
 
         for client in fed_server.clients:
             client.decay_epsilon()
@@ -233,6 +266,25 @@ def run_training_real(
             avg_queue=avg_queue,
             overload_count=overload_count,
         )
+
+        should_print_profile = (e < 3) or ((e + 1) % 10 == 0) or (e + 1 == episodes)
+        if should_print_profile:
+            episode_wall_s = time.time() - episode_start_time
+            replay_sizes = "/".join(str(len(client.memory)) for client in fed_server.clients)
+            avg_decisions_per_step = total_decisions / max(1, steps_per_episode * len(client_envs))
+            print(
+                f"[Profile][Ep {e+1}] wall={episode_wall_s:.1f}s "
+                f"scan={episode_decision_scan_s:.1f}s "
+                f"build={episode_action_build_s:.1f}s "
+                f"env={episode_env_step_s:.1f}s "
+                f"store={episode_store_s:.1f}s "
+                f"step_train={episode_step_train_s:.1f}s "
+                f"fed_train={episode_fed_train_s:.1f}s "
+                f"agg={episode_agg_s:.1f}s "
+                f"decisions={total_decisions} "
+                f"dec/step/client={avg_decisions_per_step:.3f} "
+                f"replay={replay_sizes}"
+            )
 
         if (e + 1) % 20 == 0:
             print(

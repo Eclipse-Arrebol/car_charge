@@ -40,7 +40,7 @@ def _resolve_scale(command, debug, medium, quick=False):
             "steps": 200,
             "episodes": 100,
             "fed_rounds": 5,
-            "batch_size": 32,
+            "batch_size": 128,
         }
     defaults = {
         "train": {
@@ -171,12 +171,27 @@ def cmd_train_real(args):
         epsilon_final = 0.90
     else:
         epsilon_final = 0.10
+
+    if args.medium:
+        step_local_train_steps = 1
+        step_train_interval = 4
+    elif args.debug or args.quick:
+        step_local_train_steps = 2
+        step_train_interval = 1
+    else:
+        step_local_train_steps = 1
+        step_train_interval = 2
+
+    full_batch_size = 128 if not (args.debug or args.quick or args.medium) else cfg["batch_size"]
+
     run_training_real(
         num_evs=cfg["num_evs"],
         episodes=cfg["episodes"],
         steps_per_episode=cfg["steps"],
         fed_rounds_per_episode=cfg["fed_rounds"],
-        batch_size=cfg["batch_size"],
+        batch_size=full_batch_size,
+        step_local_train_steps=step_local_train_steps,
+        step_train_interval=step_train_interval,
         use_dp=args.dp,
         dp_noise_multiplier=args.dp_sigma,
         epsilon_final=epsilon_final,
