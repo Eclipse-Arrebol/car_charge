@@ -16,6 +16,8 @@ import sys
 import os
 import random
 
+DEFAULT_EVAL_BASE_SEED = 20260411
+
 
 def _resolve_scale(command, debug, medium, quick=False):
     if quick:
@@ -218,11 +220,13 @@ def cmd_evaluate(args):
     USE_REAL_MAP = True
     EPISODES = eval_cfg["episodes"]
     STEPS = eval_cfg["steps"]
-    episode_seeds = [random.randint(0, 10000) for _ in range(EPISODES)]
+    rng = random.Random(DEFAULT_EVAL_BASE_SEED)
+    episode_seeds = [rng.randint(0, 10000) for _ in range(EPISODES)]
 
     map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
     print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
 
+    print(f"[Evaluation Seeds] base_seed={DEFAULT_EVAL_BASE_SEED}, episode_seeds={episode_seeds}")
     print("=" * 62)
     print("  【1/4】随机策略基线")
     print("=" * 62)
