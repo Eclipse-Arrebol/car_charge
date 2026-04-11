@@ -40,6 +40,7 @@ class EV:
         self.current_edge_speed_kph = 0.0
         self.low_soc_triggered = False
         self.charge_decision_pending = False
+        self.remaining_replans = 1
         self.assigned_station = None   # 当前路由目标站 ID
         self._decision_state = None    # 决策时刻的图状态快照 (用于延迟奖励)
         self._decision_snap = None     # 决策时刻的指标快照
@@ -390,6 +391,7 @@ class ChargingStation:
                 ev.charge_sessions += 1
                 ev.low_soc_triggered = False
                 ev.charge_decision_pending = False
+                ev.remaining_replans = 1
                 # 模拟 EV 充完后驶离：随机重置 SOC，形成持续充电需求
                 ev.soc = random.uniform(20.0, 50.0)
                 finished.append(ev)
@@ -478,6 +480,7 @@ class TrafficPowerEnv:
         ev.current_edge_speed_kph = 0.0
         ev.charge_decision_pending = ev.soc < self.charge_trigger_soc
         ev.low_soc_triggered = ev.soc < self.charge_trigger_soc
+        ev.remaining_replans = 1
 
     def should_request_charge_decision(self, ev):
         """Event-triggered planning: request one decision when an EV first becomes low on charge."""
@@ -502,6 +505,41 @@ class TrafficPowerEnv:
         pending_evs = [ev for ev in self.evs if self.should_request_charge_decision(ev)]
         pending_evs.sort(key=lambda ev: ev.soc)
         return pending_evs
+
+    def _find_best_station_metrics(self, ev):
+        action_mask = self.get_action_mask(ev)
+        best_station_id = None
+        best_metrics = None
+        for station in self.stations:
+            if not action_mask[0, station.id].item():
+                continue
+            metrics = self.estimate_action_metrics(ev, station.id)
+            if best_metrics is None or metrics["generalized_cost"] < best_metrics["generalized_cost"]:
+                best_station_id = station.id
+                best_metrics = metrics
+        return best_station_id, best_metrics
+
+    def _should_replan_in_transit(self, ev, target_station):
+        if ev.remaining_replans <= 0:
+            return False
+        if ev.remaining_edge_time_h > 1e-9:
+            return False
+
+        current_metrics = self.estimate_action_metrics(ev, target_station.id)
+        queue_exploded = len(target_station.queue) >= max(1, int(0.8 * target_station.max_queue_len))
+        wait_too_high = current_metrics["queue_time_h"] >= 0.75 * target_station.max_wait_time_h
+        if not (queue_exploded or wait_too_high):
+            return False
+
+        best_station_id, best_metrics = self._find_best_station_metrics(ev)
+        if best_station_id is None or best_station_id == target_station.id:
+            return False
+
+        much_lower_queue = best_metrics["queue_time_h"] + 0.5 < current_metrics["queue_time_h"]
+        meaningfully_lower_cost = (
+            best_metrics["generalized_cost"] + 10.0 < current_metrics["generalized_cost"]
+        )
+        return much_lower_queue or meaningfully_lower_cost
 
     @staticmethod
     def _parse_speed_kph(speed_raw, default=50.0):
@@ -896,6 +934,14 @@ class TrafficPowerEnv:
                 ev.move(self, step_hours=self.step_duration_h)
                 target_station = self.stations[ev.target_station_idx]
                 if (
+                    ev.curr_node != target_station.traffic_node_id
+                    and self._should_replan_in_transit(ev, target_station)
+                ):
+                    ev.remaining_replans -= 1
+                    self._reset_ev_charging_attempt(ev)
+                    ev.remaining_replans = 0
+                    continue
+                if (
                     not ev.path
                     and ev.remaining_edge_time_h <= 1e-9
                     and ev.curr_node == target_station.traffic_node_id
@@ -950,7 +996,7 @@ class TrafficPowerEnv:
 
         reward = -(
             0.08 * user_cost +
-            4.0 * queue_cost +
+            10.0 * queue_cost +
             0.03 * grid_cost +
             0.01 * fluct_cost +
             voltage_penalty

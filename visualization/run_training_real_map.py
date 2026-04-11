@@ -51,6 +51,9 @@ FED_LOCAL_STEPS = 4
 FED_ROUNDS_PER_EP = 1
 AGGREGATION_INTERVAL = 10
 CHECKPOINT_INTERVAL = 20
+MIXED_REWARD_SCALE = 50.0
+MIXED_REWARD_MIN = -20.0
+MIXED_REWARD_MAX = 5.0
 # ============================================================
 
 
@@ -95,6 +98,9 @@ def run_training_real(
     dp_clip_C=1.0,
     epsilon_final=0.10,
     checkpoint_interval=CHECKPOINT_INTERVAL,
+    mixed_reward_scale=MIXED_REWARD_SCALE,
+    mixed_reward_min=MIXED_REWARD_MIN,
+    mixed_reward_max=MIXED_REWARD_MAX,
 ):
     if LOCAL_GRAPHML is not None:
         print(f"[模式 B] 使用本地 GraphML 文件: {LOCAL_GRAPHML}")
@@ -164,6 +170,12 @@ def run_training_real(
         episode_step_train_s = 0.0
         episode_fed_train_s = 0.0
         episode_agg_s = 0.0
+        episode_queue_h_sum = 0.0
+        episode_trip_h_sum = 0.0
+        episode_service_h_sum = 0.0
+        episode_realized_queue_h_sum = 0.0
+        episode_realized_service_h_sum = 0.0
+        episode_generalized_cost_sum = 0.0
 
         for env in client_envs:
             env.reset()
@@ -189,8 +201,14 @@ def run_training_real(
 
                     metrics = env.estimate_action_metrics(ev, action, pending_counts)
                     per_ev_r = -metrics["generalized_cost"]
-                    per_ev_r -= 6.0 * metrics["queue_time_h"]
-                    per_ev_r -= 2.0 * metrics["trip_time_h"]
+                    per_ev_r -= 18.0 * metrics["queue_time_h"]
+                    per_ev_r -= 8.0 * metrics["service_time_h"]
+                    per_ev_r -= 1.0 * metrics["trip_time_h"]
+                    per_ev_r -= 3.0 * metrics["grid_load_ratio"]
+
+                    episode_queue_h_sum += metrics["queue_time_h"]
+                    episode_trip_h_sum += metrics["trip_time_h"]
+                    episode_service_h_sum += metrics["service_time_h"]
 
                     ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask))
                     pending_counts[action] += 1
@@ -205,11 +223,24 @@ def run_training_real(
                 for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
                     realized = info["decision_costs"].get(ev.id, {})
                     realized_cost = realized.get("generalized_cost", 0.0)
-                    mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
+                    realized_queue_h = realized.get("queue_time_h", 0.0)
+                    realized_service_h = realized.get("service_time_h", 0.0)
+                    mixed_r = (
+                        per_ev_r
+                        - 0.2 * realized_cost
+                        - 10.0 * realized_queue_h
+                        - 4.0 * realized_service_h
+                        + global_bonus
+                    )
+                    mixed_r = mixed_r / max(1e-6, mixed_reward_scale)
+                    mixed_r = max(mixed_reward_min, min(mixed_reward_max, mixed_r))
                     next_ev_state = env.get_graph_state_for_ev(ev)
                     client.store_transition(
                         ev_state, act, mixed_r, next_ev_state, action_mask=mask
                     )
+                    episode_realized_queue_h_sum += realized_queue_h
+                    episode_realized_service_h_sum += realized_service_h
+                    episode_generalized_cost_sum += realized_cost
                     total_mixed_reward += mixed_r
                     total_decisions += 1
                 episode_store_s += time.perf_counter() - t0
@@ -274,6 +305,12 @@ def run_training_real(
             episode_wall_s = time.time() - episode_start_time
             replay_sizes = "/".join(str(len(client.memory)) for client in fed_server.clients)
             avg_decisions_per_step = total_decisions / max(1, steps_per_episode * len(client_envs))
+            avg_queue_h = episode_queue_h_sum / max(1, total_decisions)
+            avg_trip_h = episode_trip_h_sum / max(1, total_decisions)
+            avg_service_h = episode_service_h_sum / max(1, total_decisions)
+            avg_realized_queue_h = episode_realized_queue_h_sum / max(1, total_decisions)
+            avg_realized_service_h = episode_realized_service_h_sum / max(1, total_decisions)
+            avg_generalized_cost = episode_generalized_cost_sum / max(1, total_decisions)
             print(
                 f"[Profile][Ep {e+1}] wall={episode_wall_s:.1f}s "
                 f"scan={episode_decision_scan_s:.1f}s "
@@ -285,7 +322,14 @@ def run_training_real(
                 f"agg={episode_agg_s:.1f}s "
                 f"decisions={total_decisions} "
                 f"dec/step/client={avg_decisions_per_step:.3f} "
-                f"replay={replay_sizes}"
+                f"replay={replay_sizes} "
+                f"avg_mixed_r={avg_mixed_reward:.3f} "
+                f"avg_queue_h={avg_queue_h:.3f} "
+                f"avg_trip_h={avg_trip_h:.3f} "
+                f"avg_service_h={avg_service_h:.3f} "
+                f"avg_real_queue_h={avg_realized_queue_h:.3f} "
+                f"avg_real_service_h={avg_realized_service_h:.3f} "
+                f"avg_cost={avg_generalized_cost:.1f}"
             )
 
         if (e + 1) % 20 == 0:
