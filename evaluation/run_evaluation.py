@@ -113,7 +113,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         print("[策略] 使用训练后的 DQN 策略")
         
         # 获取环境特定的参数以初始化网络
-        num_features = 15
+        num_features = 18
         num_actions = getattr(env, 'num_stations', 2)
         station_node_ids = getattr(env, 'station_node_ids', [0, 8])
         num_nodes_per_graph = getattr(env, 'num_nodes', 9)

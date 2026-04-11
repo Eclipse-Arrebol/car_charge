@@ -7,6 +7,8 @@ from torch_geometric.data import Data
 import sys
 import os
 
+NODE_FEATURE_DIM = 18
+
 # 1. 获取当前文件 (Traffic.py) 的目录路径 -> .../simEvn
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 2. 获取这个目录的父目录 (项目根目录) -> .../YourProjectRoot
@@ -763,9 +765,9 @@ class TrafficPowerEnv:
         return self._estimate_ev_station_metrics(ev, station, pending_counts=pending_counts)
 
     def get_graph_state(self):
-        """返回 PyG 的 Data 对象 (全局状态, 15 维特征)"""
+        """返回 PyG 的 Data 对象 (全局状态, 18 维特征)"""
         num_nodes = self.traffic_graph.number_of_nodes()
-        # 特征维度=15:
+        # 特征维度=18:
         #   [0] 车辆数  [1] 是否充电站  [2] 排队数  [3] 当前电价
         #   [4] 在桩车辆数  [5] 负荷率  [6] 母线电压(pu)  [7] 分时电价系数
         #   [8] 请求EV的SOC/100 (默认0, 由 get_graph_state_for_ev 设置)
@@ -775,7 +777,10 @@ class TrafficPowerEnv:
         #   [12] 广义出行成本(归一化)
         #   [13] 实时价格扰动系数
         #   [14] 预测到达车辆数(EMA)
-        x = torch.zeros((num_nodes, 15), dtype=torch.float)
+        #   [15] 归一化排队等待比率
+        #   [16] 站点拥堵压力 (队列+在桩+预测到达)/容量
+        #   [17] 当前目标站标记 (用于受限重规划)
+        x = torch.zeros((num_nodes, NODE_FEATURE_DIM), dtype=torch.float)
 
         # Feature 0: 车辆分布
         for ev in self.evs:
@@ -796,6 +801,12 @@ class TrafficPowerEnv:
             x[node_idx, 6] = self.power_grid.bus_voltages.get(
                 station.power_node_id, 1.0)             # 母线电压
             x[node_idx, 14] = station.predicted_arrivals
+            queue_wait_ratio = station.estimate_queue_wait_hours() / max(1e-6, station.max_wait_time_h)
+            station_pressure = (
+                len(station.queue) + len(station.connected_evs) + station.predicted_arrivals
+            ) / max(1.0, station.max_queue_len + station.num_chargers)
+            x[node_idx, 15] = min(2.0, queue_wait_ratio)
+            x[node_idx, 16] = station_pressure
 
         data = Data(x=x, edge_index=self.edge_index, edge_attr=self.edge_attr)
         return data
@@ -818,13 +829,23 @@ class TrafficPowerEnv:
         # Feature[8]: 请求 EV 的 SOC (归一化), 同时标识 EV 所在节点
         data.x[ev.curr_node, 8] = ev.soc / 100.0
 
-        # Feature[9]-[12]: 各站节点对当前 EV 的一体化成本感知
+        # Feature[9]-[17]: 各站节点对当前 EV 的一体化成本与拥堵风险感知
         for station in self.stations:
             metrics = self._estimate_ev_station_metrics(ev, station, pending_counts=pending_counts)
             data.x[station.traffic_node_id, 9] = 1.0 / (1.0 + metrics["trip_time_h"])
             data.x[station.traffic_node_id, 10] = metrics["trip_time_h"]
             data.x[station.traffic_node_id, 11] = metrics["service_time_h"]
             data.x[station.traffic_node_id, 12] = metrics["generalized_cost"] / 100.0
+            data.x[station.traffic_node_id, 15] = min(
+                2.0, metrics["queue_time_h"] / max(1e-6, station.max_wait_time_h)
+            )
+            pending = 0 if pending_counts is None else pending_counts.get(station.id, 0)
+            data.x[station.traffic_node_id, 16] = (
+                len(station.queue) + len(station.connected_evs) + station.predicted_arrivals + pending
+            ) / max(1.0, station.max_queue_len + station.num_chargers)
+            data.x[station.traffic_node_id, 17] = float(
+                ev.target_station_idx is not None and station.id == ev.target_station_idx
+            )
 
         # 将本步内的 pending 分配叠加到排队特征上
         if pending_counts:

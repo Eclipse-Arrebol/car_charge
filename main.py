@@ -113,7 +113,7 @@ def cmd_train(args):
     cfg = _resolve_scale(args.command, args.debug, args.medium)
 
     env = TrafficPowerEnv(num_evs=cfg["num_evs"])
-    agent = DQNAgent(num_features=15, num_actions=2)
+    agent = DQNAgent(num_features=18, num_actions=2)
 
     episodes = cfg["episodes"]
     steps_per_episode = cfg["steps"]

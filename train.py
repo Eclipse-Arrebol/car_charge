@@ -231,7 +231,7 @@ class DQNAgent:
 # ==========================================
 if __name__ == "__main__":
     env = TrafficPowerEnv()
-    agent = DQNAgent(num_features=15, num_actions=2)  # 15个特征(新增 predicted_arrivals), 2个充电站
+    agent = DQNAgent(num_features=18, num_actions=2)  # 18个特征, 2个充电站
 
     episodes = 800
     batch_size = 64

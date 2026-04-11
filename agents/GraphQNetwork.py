@@ -4,9 +4,9 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATv2Conv, global_mean_pool
 
 
-# ── 特征分组索引（对应 Traffic.py get_graph_state 的 15 维布局）──────────
+# ── 特征分组索引（对应 Traffic.py get_graph_state 的 18 维布局）──────────
 # 队列/容量: is_station(1), queue(2), connected(4), load(5), pred_arrivals(14)
-_IDX_QUEUE   = [1, 2, 4, 5, 14]
+_IDX_QUEUE   = [1, 2, 4, 5, 14, 15, 16, 17]
 # 价格/时间: price(3), tou(7), travel_time(10), service_time(11), gen_cost(12), price_noise(13)
 _IDX_COST    = [3, 7, 10, 11, 12, 13]
 # 空间/电网: ev_count(0), voltage(6), inv_dist(9)
@@ -17,7 +17,7 @@ _IDX_EV      = [8]
 
 class FeatureEncoder(nn.Module):
     """
-    分组特征编码器 — 将 15 维异质节点特征按语义分组独立编码后融合。
+    分组特征编码器 — 将 18 维异质节点特征按语义分组独立编码后融合。
 
     四个语义组:
       队列/容量组  [1,2,4,5,14]      → 站点拥堵状态（5维）
@@ -30,7 +30,7 @@ class FeatureEncoder(nn.Module):
 
     def __init__(self, out_dim: int = 64):
         super().__init__()
-        self.queue_enc   = nn.Sequential(nn.Linear(5, 32), nn.ReLU())
+        self.queue_enc   = nn.Sequential(nn.Linear(8, 32), nn.ReLU())
         self.cost_enc    = nn.Sequential(nn.Linear(6, 32), nn.ReLU())
         self.spatial_enc = nn.Sequential(nn.Linear(3, 32), nn.ReLU())
         self.ev_enc      = nn.Sequential(nn.Linear(1, 32), nn.ReLU())
@@ -42,7 +42,7 @@ class FeatureEncoder(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: [N, 15]  →  [N, out_dim]"""
+        """x: [N, 18]  →  [N, out_dim]"""
         q = self.queue_enc(x[:, _IDX_QUEUE])
         c = self.cost_enc(x[:, _IDX_COST])
         s = self.spatial_enc(x[:, _IDX_SPATIAL])
@@ -56,7 +56,7 @@ class GraphQNetwork(nn.Module):
       FeatureEncoder（分组编码）→ GATv2 × 2 → Dueling Head → Q 值
 
     相比原版的改进:
-      1. FeatureEncoder: 15 维原始特征 → 按语义分 4 组编码融合，避免异质特征直接混入 GAT
+      1. FeatureEncoder: 18 维原始特征 → 按语义分 4 组编码融合，避免异质特征直接混入 GAT
       2. Dueling Network: V(s) + A(s,a) − mean(A)，Q 值估计更稳定
     """
 
@@ -65,7 +65,7 @@ class GraphQNetwork(nn.Module):
                  num_edge_features=2):
         """
         Args:
-            num_features:        节点特征维度（当前固定=15，由 FeatureEncoder 处理）
+            num_features:        节点特征维度（当前固定=18，由 FeatureEncoder 处理）
             num_actions:         动作数 = 充电站数量
             station_node_ids:    充电站对应的节点索引列表
             num_nodes_per_graph: 每张图的节点数
@@ -83,7 +83,7 @@ class GraphQNetwork(nn.Module):
         self.num_nodes_per_graph = num_nodes_per_graph
         self.num_actions = num_actions
 
-        # 1. 分组特征编码器 (15 → 64)
+        # 1. 分组特征编码器 (18 → 64)
         self.feature_encoder = FeatureEncoder(out_dim=64)
 
         # 2. GATv2 卷积层 (64 → 32 → 64)

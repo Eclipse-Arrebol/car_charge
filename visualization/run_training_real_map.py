@@ -118,7 +118,7 @@ def run_training_real(
     print(f"[Epsilon] decay={epsilon_decay:.6f}，{episodes} episodes 后 ε≈{epsilon_final}")
 
     fed_server = FederatedServer(
-        num_features=15,
+        num_features=18,
         num_actions=env0.num_stations,
         station_node_ids=env0.station_node_ids,
         num_nodes_per_graph=env0.num_nodes,
@@ -129,7 +129,7 @@ def run_training_real(
         dp_sample_rate = batch_size / 20000  # q = batch / replay_buffer_size
         client = FederatedClient(
             client_id=i,
-            num_features=15,
+            num_features=18,
             num_actions=client_env.num_stations,
             station_node_ids=client_env.station_node_ids,
             num_nodes_per_graph=client_env.num_nodes,

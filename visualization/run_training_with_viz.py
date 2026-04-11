@@ -18,7 +18,7 @@ from visualization.visualize_training import TrainingVisualizer
 
 def run_training(episodes=500, steps_per_episode=100, batch_size=64, num_evs=10):
     env = TrafficPowerEnv(num_evs=num_evs)
-    agent = DQNAgent(num_features=15, num_actions=2)
+    agent = DQNAgent(num_features=18, num_actions=2)
     viz = TrainingVisualizer()
 
     print("开始训练 (EV感知 + 顺序决策 + Double DQN + 目标网络 + 凸优化调度 + 可视化)...")

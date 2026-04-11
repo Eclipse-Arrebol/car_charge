@@ -213,7 +213,7 @@ def run_map_animation(
         num_nodes = getattr(env, "num_nodes", env.traffic_graph.number_of_nodes())
 
         agent = DQNAgent(
-            num_features=15,
+            num_features=18,
             num_actions=num_actions,
             station_node_ids=station_node_ids,
             num_nodes_per_graph=num_nodes,
