@@ -148,8 +148,8 @@ class RealTrafficEnv(TrafficPowerEnv):
         # 4. 其余属性（与父类一致）
         self.power_limit = 15.0
         self.time_step = 0
-        self.steps_per_day = 24
-        self.step_duration_h = 1.0
+        self.steps_per_day = 96
+        self.step_duration_h = 0.25
         self.bpr_alpha = 0.15
         self.bpr_beta = 4.0
         self.edge_active_counts = {}
@@ -190,7 +190,8 @@ class RealTrafficEnv(TrafficPowerEnv):
             self.evs.append(EV(i, start))
 
         self.time_step = 0
-        self.step_duration_h = 1.0
+        self.steps_per_day = 96
+        self.step_duration_h = 0.25
         self.edge_active_counts = {}
         self.tou_multiplier = 1.0
         self.price_noise = 0.0

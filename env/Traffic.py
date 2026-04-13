@@ -118,7 +118,7 @@ def get_tou_multiplier(time_step, steps_per_day=24):
       平时 (Flat):   07:00-10:00, 15:00-18:00  →  系数 1.0
       峰时 (Peak):   10:00-15:00, 18:00-23:00  →  系数 1.5
     """
-    hour = time_step % steps_per_day
+    hour = (time_step % steps_per_day) * (24.0 / max(1, steps_per_day))
     if hour >= 23 or hour < 7:                # 谷时
         return 0.5
     elif 10 <= hour < 15 or 18 <= hour < 23:  # 峰时
@@ -354,7 +354,7 @@ class ChargingStation:
     # --------------------------------------------------
     # 每一步的调度逻辑 (替换旧的固定 +5.0 逻辑)
     # --------------------------------------------------
-    def step(self, tou_multiplier=1.0, price_noise=0.0):
+    def step(self, tou_multiplier=1.0, price_noise=0.0, step_duration_h=1.0):
         """
         新逻辑:
           1. 把排队的车填入空余充电桩 (插枪)
@@ -379,14 +379,14 @@ class ChargingStation:
         finished = []
         for ev in self.connected_evs:
             power = allocation.get(ev.id, 0.0)
-            energy_kwh = power * 1.0
+            energy_kwh = power * step_duration_h
             soc_increment = (energy_kwh * ev.charge_efficiency / ev.battery_capacity_kwh) * 100.0
             ev.soc = min(100.0, ev.soc + soc_increment)
             realized_power += power
 
             # 记录充电费用: 功率(kWh) × 当前电价(CNY/kWh)
-            ev.total_fee_paid += power * self.current_price
-            ev.total_energy_charged += power
+            ev.total_fee_paid += energy_kwh * self.current_price
+            ev.total_energy_charged += energy_kwh
 
             if ev.soc >= 95.0:
                 ev.status = "IDLE"
@@ -429,8 +429,8 @@ class TrafficPowerEnv:
 
         self.power_limit = 15.0
         self.time_step = 0
-        self.steps_per_day = 24               # 每天 24 步 (1步 = 1小时)
-        self.step_duration_h = 1.0            # 每个 step 对应的仿真时长 (小时)
+        self.steps_per_day = 96               # 每天 96 步 (1步 = 15分钟)
+        self.step_duration_h = 0.25           # 每个 step 对应的仿真时长 (小时)
         self.bpr_alpha = 0.15
         self.bpr_beta = 4.0
         self.edge_active_counts = {}          # {(u, v): active_vehicles}
@@ -1001,7 +1001,11 @@ class TrafficPowerEnv:
         # --- 3. 基础设施更新 (凸优化调度) ---
         total_realized_power = 0.0
         for station in self.stations:
-            load = station.step(tou_multiplier=self.tou_multiplier, price_noise=self.price_noise)
+            load = station.step(
+                tou_multiplier=self.tou_multiplier,
+                price_noise=self.price_noise,
+                step_duration_h=self.step_duration_h,
+            )
             grid_loads[station.power_node_id] += load
             total_realized_power += load
 
@@ -1054,9 +1058,11 @@ class TrafficPowerEnv:
 
     def render(self):
         # 时间与电价
-        hour = self.time_step % self.steps_per_day
+        hour = (self.time_step % self.steps_per_day) * (24.0 / max(1, self.steps_per_day))
         tou_tag = {0.5: "谷", 1.0: "平", 1.5: "峰"}.get(self.tou_multiplier, "?")
-        print(f"\n=== Step {self.time_step:03d} | {hour:02d}:00 [{tou_tag}时 x{self.tou_multiplier}] ===")
+        hour_int = int(hour)
+        minute_int = int(round((hour - hour_int) * 60)) % 60
+        print(f"\n=== Step {self.time_step:03d} | {hour_int:02d}:{minute_int:02d} [{tou_tag}时 x{self.tou_multiplier}] ===")
 
         # 电网状态
         for bus, v in self.power_grid.bus_voltages.items():
