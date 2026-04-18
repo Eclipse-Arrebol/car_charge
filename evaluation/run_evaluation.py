@@ -141,7 +141,7 @@ def evaluate(
 
 
 def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
-                   use_real_map=True, model_file=None, num_evs=100, num_stations=4,
+                   use_real_map=True, model_file=None, num_evs=100, num_stations=8,
                    episode_seeds=None):
     """
     运行评估。
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     print("=" * 62)
     fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
                                 use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_federated_dqn_real.pth",
+                                model_file="trained_federated_dqn_real_l0.pth",
                                 episode_seeds=episode_seeds)
 
     _compare_table({"Random": random_report, "Greedy": greedy_report,

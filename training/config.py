@@ -56,11 +56,12 @@ class TrainConfig:
     dp_clip_C: float = 1.0          # 梯度裁剪范数 C
 
     # ── 环境 ──────────────────────────────────────────────────────────
-    num_stations: int = 4           # 充电站数量
+    num_stations: int = 8           # 充电站数量
     max_nodes: int = 800            # 路网最大节点数
     graphml_file: str = field(default_factory=lambda: _DEFAULT_GRAPHML)
     station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
     station_id_key: str = "l0_station_nodes"
+    graph_group: str = "l0"
 
     # ── 检查点 ────────────────────────────────────────────────────────
     checkpoint_interval: int = 20   # 每隔多少 episode 保存一次检查点
@@ -106,6 +107,7 @@ class TrainConfig:
             max_nodes=9999,
             station_config_file=_DEFAULT_STATION_CONFIG,
             station_id_key="l0_station_nodes",
+            graph_group="l0",
         )
 
     @classmethod
@@ -115,6 +117,7 @@ class TrainConfig:
             max_nodes=9999,
             station_config_file=_DEFAULT_STATION_CONFIG,
             station_id_key="l1_station_nodes",
+            graph_group="l1",
         )
 
 
@@ -126,7 +129,7 @@ class EvalConfig:
     episodes: int = 50              # 评估轮数（多轮取均值更稳定）
     steps_per_episode: int = 3000    # 每轮步数
     num_evs: int = 100
-    num_stations: int = 4
+    num_stations: int = 8
     max_nodes: int = 9999           # 评估时使用完整路网
     use_real_map: bool = True       # True = 真实路网；False = 3x3 合成网格
 
@@ -137,6 +140,7 @@ class EvalConfig:
     graphml_file: str = field(default_factory=lambda: _DEFAULT_GRAPHML)
     station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
     station_id_key: str = "l0_station_nodes"
+    graph_group: str = "l0"
 
     # ------------------------------------------------------------------
     # 工厂方法
@@ -161,4 +165,15 @@ class EvalConfig:
             max_nodes=9999,
             station_config_file=_DEFAULT_STATION_CONFIG,
             station_id_key="l0_station_nodes",
+            graph_group="l0",
+        )
+
+    @classmethod
+    def ablation_l1(cls) -> "EvalConfig":
+        return cls(
+            graphml_file=_DEFAULT_L0_GRAPHML,
+            max_nodes=9999,
+            station_config_file=_DEFAULT_STATION_CONFIG,
+            station_id_key="l0_station_nodes",
+            graph_group="l1",
         )

@@ -22,7 +22,7 @@ PLACE = "Wuchang District, Wuhan, China"
 
 MAX_NODES = 200
 NUM_EVS = 200
-NUM_STATS = 4
+NUM_STATS = 8
 
 EPISODES = 500
 STEPS_PER_EP = 1000
@@ -340,8 +340,9 @@ class FederatedTrainer:
 
         ckpt_dir = os.path.join(project_root, "checkpoints")
         os.makedirs(ckpt_dir, exist_ok=True)
+        model_tag = getattr(self.cfg, "graph_group", "l0")
         ckpt_path = os.path.join(
-            ckpt_dir, f"trained_federated_dqn_real_ep{episode_idx + 1}.pth"
+            ckpt_dir, f"trained_federated_dqn_real_{model_tag}_ep{episode_idx + 1}.pth"
         )
         self.fed_server.save_global_model(path=ckpt_path)
         print(f"[Checkpoint] saved: {ckpt_path}")
@@ -378,7 +379,10 @@ class FederatedTrainer:
         self.viz.save_data()
         self.viz.generate_summary_report()
 
-        save_path = os.path.join(project_root, "checkpoints", "trained_federated_dqn_real.pth")
+        model_tag = getattr(self.cfg, "graph_group", "l0")
+        save_path = os.path.join(
+            project_root, "checkpoints", f"trained_federated_dqn_real_{model_tag}.pth"
+        )
         self.fed_server.save_global_model(path=save_path)
         print(f"\n联邦训练完成！全局模型已保存: {save_path}")
 
@@ -414,6 +418,7 @@ def run_training_real(
     station_config_file=None,
     station_id_key="l0_station_nodes",
     max_nodes=MAX_NODES,
+    graph_group="l0",
 ):
     cfg = TrainConfig(
         num_evs=num_evs,
@@ -437,6 +442,7 @@ def run_training_real(
         graphml_file=graphml_file,
         station_config_file=station_config_file or getattr(TrainConfig(), "station_config_file", None),
         station_id_key=station_id_key,
+        graph_group=graph_group,
         checkpoint_interval=checkpoint_interval,
     )
     FederatedTrainer(cfg).train()

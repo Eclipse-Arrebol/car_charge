@@ -22,7 +22,7 @@ EDGE_MAP_PATH = os.path.join(BASELINE_DIR, "edge_map_eps40.json")
 ANCHOR_PATH = os.path.join(BASELINE_DIR, "cluster_anchors_eps40.json")
 STATIONS_PATH = os.path.join(CONFIG_DIR, "stations.json")
 
-NUM_STATIONS = 4
+NUM_STATIONS = 8
 SELECTION_SEED = 42
 
 

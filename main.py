@@ -29,6 +29,15 @@ def _apply_train_scale(base_cfg, scale_cfg):
     return base_cfg
 
 
+def _apply_eval_scale(base_cfg, scale_cfg):
+    for attr in [
+        "episodes",
+        "steps_per_episode",
+    ]:
+        setattr(base_cfg, attr, getattr(scale_cfg, attr))
+    return base_cfg
+
+
 def cmd_train_real(args):
     """联邦 DQN 训练（真实路网）"""
     from training.trainer import run_training_real
@@ -69,6 +78,7 @@ def cmd_train_real(args):
         station_config_file=cfg.station_config_file,
         station_id_key=cfg.station_id_key,
         max_nodes=cfg.max_nodes,
+        graph_group=cfg.graph_group,
     )
 
 
@@ -76,14 +86,17 @@ def cmd_evaluate(args):
     """评估已训练模型（随机 / 贪心 / DQN / 联邦DQN 四方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
 
-    if args.debug:
-        eval_cfg = EvalConfig.debug()
-    elif args.quick:
-        eval_cfg = EvalConfig.quick()
-    elif args.medium:
-        eval_cfg = EvalConfig.medium()
+    if args.graph_group == "l1":
+        eval_cfg = EvalConfig.ablation_l1()
     else:
-        eval_cfg = EvalConfig()
+        eval_cfg = EvalConfig.ablation_l0()
+
+    if args.debug:
+        eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.debug())
+    elif args.quick:
+        eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.quick())
+    elif args.medium:
+        eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.medium())
 
     # 预先生成固定种子，保证四种策略在相同 episode 上评估
     rng = random.Random(eval_cfg.base_seed)
@@ -120,7 +133,8 @@ def cmd_evaluate(args):
     print("\n" + "=" * 62)
     print("  【4/4】联邦 DQN 策略评估")
     print("=" * 62)
-    fed_report = run_evaluation(**common, model_file="trained_federated_dqn_real.pth")
+    fed_model_name = f"trained_federated_dqn_real_{eval_cfg.graph_group}.pth"
+    fed_report = run_evaluation(**common, model_file=fed_model_name)
 
     _compare_table({
         "Random": random_report,

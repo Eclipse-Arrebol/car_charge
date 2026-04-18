@@ -1,7 +1,7 @@
 {
   "selection_rule": {
     "description": "High-degree road nodes with spacing constraint on L0 and unique L1 projection.",
-    "num_stations": 4,
+    "num_stations": 8,
     "seed": 42,
     "spacing_rule": "shortest-path hop distance >= floor(|V_L0| / (3 * num_stations))",
     "projection_rule": "pi(S_L0) must be injective for the chosen station set"
@@ -17,13 +17,21 @@
     394,
     147,
     182,
-    708
+    708,
+    764,
+    964,
+    1496,
+    200
   ],
   "l1_station_nodes": [
     306,
     448,
     443,
-    930
+    930,
+    704,
+    837,
+    677,
+    333
   ],
   "station_pairs": [
     {
@@ -49,6 +57,30 @@
       "l0_node": 708,
       "l1_node": 930,
       "raw_l0_node": "4404251335"
+    },
+    {
+      "station_id": 4,
+      "l0_node": 764,
+      "l1_node": 704,
+      "raw_l0_node": "4414859900"
+    },
+    {
+      "station_id": 5,
+      "l0_node": 964,
+      "l1_node": 837,
+      "raw_l0_node": "4451740065"
+    },
+    {
+      "station_id": 6,
+      "l0_node": 1496,
+      "l1_node": 677,
+      "raw_l0_node": "6923881552"
+    },
+    {
+      "station_id": 7,
+      "l0_node": 200,
+      "l1_node": 333,
+      "raw_l0_node": "2550885346"
     }
   ],
   "projection_collisions": [],
