@@ -18,51 +18,117 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from env.Traffic import TrafficPowerEnv
-from env.RealTrafficEnv import RealTrafficEnv
-from train import DQNAgent
+from env.base_env import TrafficPowerEnv
+from env.real_env import RealTrafficEnv
 from evaluation.metrics import Evaluator
+from evaluation.strategies import (
+    BaseStrategy,
+    DQNStrategy,
+    FedDQNStrategy,
+    GreedyStrategy,
+    RandomStrategy,
+)
+from training.config import EvalConfig
 
 
 # 真实路网评估默认使用全图（仅当节点数超过该值时才会精简）
 REAL_MAP_MAX_NODES = 9999
 
 
-def _greedy_action(stations, ev, action_mask, pending_counts):
-    """
-    贪心策略：选择综合负载最轻的充电站。
-    负载 = (队列数 + 已插枪数 + 本步待分配数) / 充电桩数
-    """
-    best_action = None
-    best_score = float('inf')
-    for i, station in enumerate(stations):
-        if not action_mask[0, i].item():
-            continue
-        load = (len(station.queue) + len(station.connected_evs)
-                + pending_counts.get(station.id, 0)) / max(station.num_chargers, 1)
-        if load < best_score:
-            best_score = load
-            best_action = i
-    if best_action is None:
-        # fallback：随机选可用站
-        valid = [i for i in range(len(stations)) if action_mask[0, i].item()]
-        best_action = rng.choice(valid) if valid else 0
-    return best_action
+def _build_eval_env(eval_cfg, seed):
+    use_real_map = getattr(eval_cfg, "use_real_map", True)
+    if use_real_map:
+        graphml_path = getattr(
+            eval_cfg, "graphml_file", os.path.join(project_root, "zhujiang_new_town.graphml")
+        )
+        if not os.path.exists(graphml_path):
+            print(f"[错误] 未找到真实路网文件: {graphml_path}")
+            print("自动回退到 3x3 基础网格环境。")
+            return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
+        return RealTrafficEnv(
+            graphml_file=graphml_path,
+            num_stations=eval_cfg.num_stations,
+            num_evs=eval_cfg.num_evs,
+            max_nodes=eval_cfg.max_nodes,
+            seed=seed,
+        )
+    return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
 
 
-def _random_valid_action(stations, action_mask):
-    valid = [i for i in range(len(stations)) if action_mask[0, i].item()]
-    return rng.choice(valid) if valid else 0
-
-
-def _strategy_name(use_random, use_greedy, model_file):
+def _resolve_strategy(use_random, use_greedy, model_file, env):
     if use_random:
-        return "random"
+        print("[策略] 使用随机策略 (Random Baseline)")
+        return RandomStrategy()
     if use_greedy:
-        return "greedy"
+        print("[策略] 使用贪心策略 (Greedy Baseline)")
+        return GreedyStrategy()
+
+    print("[策略] 使用训练后的 DQN 策略")
+    if model_file is None:
+        model_name = "trained_dqn_real.pth" if env.__class__.__name__ == "RealTrafficEnv" else "trained_dqn.pth"
+    else:
+        model_name = model_file
+    model_path = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(model_path):
+        print(f"[错误] 未找到模型文件: {model_path}")
+        print("请先运行训练脚本生成模型文件。")
+        return None
     if model_file and "federated" in model_file.lower():
-        return "feddqn"
-    return "dqn"
+        strategy = FedDQNStrategy(model_path, env)
+    else:
+        strategy = DQNStrategy(model_path, env)
+    print(f"[模型] 成功加载权重: {model_path}")
+    return strategy
+
+
+def evaluate(
+    strategy: BaseStrategy,
+    eval_cfg,
+    episode_seeds: list,
+) -> dict:
+    evaluator = Evaluator()
+    all_reports = []
+
+    for ep in range(eval_cfg.episodes):
+        env = _build_eval_env(eval_cfg, episode_seeds[ep])
+        evaluator.reset()
+
+        for _ in range(eval_cfg.steps_per_episode):
+            urgent_evs = env.get_pending_decision_evs()
+            actions = {}
+            pending_counts = {s.id: 0 for s in env.stations}
+
+            for ev in urgent_evs:
+                action = strategy.select_action(env, ev, pending_counts)
+                actions[ev.id] = action
+                pending_counts[action] += 1
+
+            _, _, _, info = env.step(actions)
+            evaluator.update(info, env.power_grid, env.stations)
+
+        report = evaluator.report(env.evs, env.stations, verbose=(eval_cfg.episodes == 1))
+        all_reports.append(report)
+
+    report = all_reports[-1]
+    if eval_cfg.episodes > 1:
+        avg_report = {}
+        for key in all_reports[0]:
+            vals = [r[key] for r in all_reports]
+            avg_report[key] = round(float(sum(vals) / len(vals)), 4)
+        print(f"\n{'='*62}")
+        print(f"  {eval_cfg.episodes} 轮评估均值:")
+        print(f"{'='*62}")
+        evaluator._print_report(avg_report)
+        report = avg_report
+
+    save_dir = os.path.join(project_root, "evaluation", "results")
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, f"evaluation_report_{strategy.name()}.json")
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=4, ensure_ascii=False)
+    print(f"\n评估结果已保存: {save_path}")
+
+    return report
 
 
 def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
@@ -79,144 +145,35 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         use_real_map:      True -> 使用真实路网 (如珠江新城); False -> 使用 3x3 网格
         model_file:        指定 checkpoints/ 下的权重文件名，None 时自动选择
     """
-    # 1. 环境初始化
-    if use_real_map:
-        graphml_path = os.path.join(project_root, "zhujiang_new_town.graphml")
-        if not os.path.exists(graphml_path):
-            print(f"[错误] 未找到真实路网文件: {graphml_path}")
-            print("自动回退到 3x3 基础网格环境。")
-            use_real_map = False
-            env = TrafficPowerEnv(num_evs=num_evs)
-        else:
-            print(f"[环境] 加载真实路网: {graphml_path}")
-            env = RealTrafficEnv(
-                graphml_file=graphml_path,
-                num_stations=num_stations,
-                num_evs=num_evs,
-                max_nodes=REAL_MAP_MAX_NODES,
-                seed=42
-            )
+    graphml_path = os.path.join(project_root, "zhujiang_new_town.graphml")
+    eval_cfg = EvalConfig(
+        episodes=episodes,
+        steps_per_episode=steps_per_episode,
+        num_evs=num_evs,
+        num_stations=num_stations,
+        max_nodes=REAL_MAP_MAX_NODES,
+        graphml_file=graphml_path,
+    )
+    eval_cfg.use_real_map = use_real_map
+
+    preview_env = _build_eval_env(eval_cfg, seed=42)
+    if use_real_map and isinstance(preview_env, RealTrafficEnv):
+        print(f"[环境] 加载真实路网: {graphml_path}")
+    elif use_real_map:
+        print("[环境] 使用 3x3 基础网格")
+        eval_cfg.use_real_map = False
     else:
         print("[环境] 使用 3x3 基础网格")
-        env = TrafficPowerEnv(num_evs=num_evs)
 
-    evaluator = Evaluator()
-
-    # 2. 策略选择
-    if use_random:
-        print("[策略] 使用随机策略 (Random Baseline)")
-        agent = None
-    elif use_greedy:
-        print("[策略] 使用贪心策略 (Greedy Baseline)")
-        agent = None
-    else:
-        print("[策略] 使用训练后的 DQN 策略")
-        
-        # 获取环境特定的参数以初始化网络
-        num_features = 18
-        num_actions = getattr(env, 'num_stations', 2)
-        station_node_ids = getattr(env, 'station_node_ids', [0, 8])
-        num_nodes_per_graph = getattr(env, 'num_nodes', 9)
-
-        agent = DQNAgent(
-            num_features=num_features, 
-            num_actions=num_actions,
-            station_node_ids=station_node_ids,
-            num_nodes_per_graph=num_nodes_per_graph
-        )
-        
-        # 根据是否是真实路网，尝试加载对应的权重文件
-        if model_file is not None:
-            model_name = model_file
-        else:
-            model_name = "trained_dqn_real.pth" if use_real_map else "trained_dqn.pth"
-        model_path = os.path.join(project_root, "checkpoints", model_name)
-        
-        if os.path.exists(model_path):
-            agent.load_model(model_path)
-            print(f"[模型] 成功加载权重: {model_path}")
-        else:
-            print(f"[错误] 未找到模型文件: {model_path}")
-            print(f"请先运行训练脚本生成模型文件。")
-            return None
-            
-        agent.epsilon = 0.02  # 近乎纯利用，保留微量随机打破 Q 值退化
+    strategy = _resolve_strategy(use_random, use_greedy, model_file, preview_env)
+    if strategy is None:
+        return None
 
     if episode_seeds is None:
         episode_seeds = [rng.randint(0, 10000) for _ in range(episodes)]
     elif len(episode_seeds) != episodes:
         raise ValueError(f"episode_seeds length {len(episode_seeds)} != episodes {episodes}")
-
-    strategy_name = _strategy_name(use_random, use_greedy, model_file)
-    all_reports = []
-
-    for ep in range(episodes):
-        # 3. 每轮重置环境与评估器
-        if use_real_map:
-            env = RealTrafficEnv(
-                graphml_file=graphml_path,
-                num_stations=num_stations,
-                num_evs=num_evs,
-                max_nodes=REAL_MAP_MAX_NODES,
-                seed=episode_seeds[ep]
-            )
-        else:
-            env = TrafficPowerEnv(num_evs=num_evs)
-        evaluator.reset()
-
-        for step in range(steps_per_episode):
-
-            # --- 顺序决策: 按 SOC 从低到高, 逐个选站 ---
-            urgent_evs = env.get_pending_decision_evs()
-
-            actions = {}
-            pending_counts = {s.id: 0 for s in env.stations}
-
-            for ev in urgent_evs:
-                if agent is not None:
-                    ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-                    action_mask = env.get_action_mask(ev)
-                    action = agent.select_action(ev_state, action_mask=action_mask)
-                elif use_greedy:
-                    action_mask = env.get_action_mask(ev)
-                    action = _greedy_action(env.stations, ev, action_mask, pending_counts)
-                else:
-                    action_mask = env.get_action_mask(ev)
-                    action = _random_valid_action(env.stations, action_mask)
-                actions[ev.id] = action
-                pending_counts[action] += 1
-
-            # 执行
-            _, reward, _, info = env.step(actions)
-
-            # 累计电网侧指标 + 排队过程指标
-            evaluator.update(info, env.power_grid, env.stations)
-
-        # 生成本轮报告
-        report = evaluator.report(env.evs, env.stations, verbose=(episodes == 1))
-        all_reports.append(report)
-
-    # 多轮均值
-    if episodes > 1:
-        avg_report = {}
-        for key in all_reports[0]:
-            vals = [r[key] for r in all_reports]
-            avg_report[key] = round(float(sum(vals) / len(vals)), 4)
-        print(f"\n{'='*62}")
-        print(f"  {episodes} 轮评估均值:")
-        print(f"{'='*62}")
-        evaluator._print_report(avg_report)
-        report = avg_report
-
-    # 保存结果
-    save_dir = os.path.join(project_root, "evaluation", "results")
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, f"evaluation_report_{strategy_name}.json")
-    with open(save_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=4, ensure_ascii=False)
-    print(f"\n评估结果已保存: {save_path}")
-
-    return report
+    return evaluate(strategy, eval_cfg, episode_seeds)
 
 
 def _compare_table(reports: dict):

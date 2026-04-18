@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir -p \"G:/交电demo/training\")",
+      "Bash(touch \"G:/交电demo/training/__init__.py\")",
+      "Bash(python:*)",
+      "Bash(rm:*)",
+      "Bash(rm -rf results/)",
+      "Bash(rm -rf evaluation/results/)",
+      "Bash(rm -f download_map.py)",
+      "Bash(rm -rf cache/pycompile_check/)"
     ]
   }
 }

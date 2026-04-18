@@ -24,7 +24,7 @@ import numpy as np
 class CostParams:
     """集中管理所有单价参数，方便后续灵活调整"""
     VOTT = 30.0            # 时间价值 (CNY/h)  — Value Of Travel Time
-    STEP_DURATION_H = 0.25  # 每步代表的时间 (h)，当前 1步=15分钟
+    STEP_DURATION_H = 1.0  # 每步代表的时间 (h)，当前 1步=1小时
     GRID_BUY_PRICE = 0.6   # 电网购电基准价格 (CNY/kWh)
 
 

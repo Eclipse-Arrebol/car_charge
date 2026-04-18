@@ -2,283 +2,113 @@
 EV 充电调度强化学习系统 — 统一入口
 =====================================
 用法:
-    python main.py train           # 基础训练 (合成路网)
-    python main.py train-real      # 联邦训练 (真实路网 + 可视化)
-    python main.py train-viz       # 基础训练 + 可视化
-    python main.py evaluate        # 评估已训练模型
-    python main.py download-map    # 下载真实路网地图
-     python visualization/visualize_simulation_3d.py --policy dqn --steps 120 --show-edges
-     ssh -p 22182 root@region-9.autodl.pro
+    python main.py train-real      # 联邦训练（真实路网）
+    python main.py evaluate        # 四方策略对比评估
 """
 
 import argparse
-import sys
-import os
 import random
 
-DEFAULT_EVAL_BASE_SEED = 20260411
-
-
-def _resolve_scale(command, debug, medium, quick=False):
-    if quick:
-        return {
-            "num_evs": 50,
-            "steps": 100,
-            "episodes": 60,
-            "fed_rounds": 1,
-            "batch_size": 32,
-        }
-    if debug:
-        return {
-            "num_evs": 10,
-            "steps": 50,
-            "episodes": 20,
-            "fed_rounds": 5,
-            "batch_size": 8,
-        }
-    if medium:
-        return {
-            "num_evs": 60,
-            "steps": 200,
-            "episodes": 100,
-            "fed_rounds": 5,
-            "batch_size": 256,
-        }
-    defaults = {
-        "train": {
-            "num_evs": 10,
-            "steps": 100,
-            "episodes": 800,
-            "fed_rounds": 1,
-            "batch_size": 64,
-        },
-        "train-real": {
-            "num_evs": 100,
-            "steps": 500,
-            "episodes": 500,
-            "fed_rounds": 1,
-            "batch_size": 64,
-        },
-        "train-viz": {
-            "num_evs": 10,
-            "steps": 100,
-            "episodes": 500,
-            "fed_rounds": 1,
-            "batch_size": 64,
-        },
-        "evaluate": {
-            "num_evs": 100,
-            "steps": 300,
-            "episodes": 5,
-            "fed_rounds": 1,
-            "batch_size": 64,
-        },
-        "download-map": {
-            "num_evs": 10,
-            "steps": 50,
-            "episodes": 20,
-            "fed_rounds": 5,
-            "batch_size": 8,
-        },
-    }
-    return defaults[command]
-
-
-def _resolve_evaluation_scale(debug, medium, quick=False):
-    if quick:
-        return {
-            "episodes": 5,
-            "steps": 100,
-        }
-    if debug:
-        return {
-            "episodes": 5,
-            "steps": 50,
-        }
-    if medium:
-        return {
-            "episodes": 20,
-            "steps": 200,
-        }
-    return {
-        "episodes": 50,
-        "steps": 500,
-    }
-
-
-def cmd_train(args):
-    """基础 DQN 训练（合成路网）"""
-    from train import DQNAgent
-    from env.Traffic import TrafficPowerEnv
-    cfg = _resolve_scale(args.command, args.debug, args.medium)
-
-    env = TrafficPowerEnv(num_evs=cfg["num_evs"])
-    agent = DQNAgent(num_features=18, num_actions=2)
-
-    episodes = cfg["episodes"]
-    steps_per_episode = cfg["steps"]
-    batch_size = cfg["batch_size"]
-    print("开始训练 (合成路网)...")
-    for e in range(episodes):
-        env.reset()
-        total_reward = 0
-        for _ in range(steps_per_episode):
-            urgent_evs = env.get_pending_decision_evs()
-            actions = {}
-            ev_dispatch = []
-            pending = {s.id: 0 for s in env.stations}
-            for ev in urgent_evs:
-                state = env.get_graph_state_for_ev(ev, pending)
-                mask = env.get_action_mask(ev)
-                action = agent.select_action(state, action_mask=mask)
-                actions[ev.id] = action
-                metrics = env.estimate_action_metrics(ev, action, pending)
-                per_ev_r = -metrics["generalized_cost"]
-                per_ev_r -= 6.0 * metrics["queue_time_h"]
-                per_ev_r -= 2.0 * metrics["trip_time_h"]
-                ev_dispatch.append((ev, state, action, per_ev_r, mask))
-                pending[action] = pending.get(action, 0) + 1
-            _, reward, _, info = env.step(actions)
-            global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
-            for ev, state, action, per_ev_r, mask in ev_dispatch:
-                realized = info["decision_costs"].get(ev.id, {})
-                realized_cost = realized.get("generalized_cost", 0.0)
-                mixed_r = per_ev_r - 0.2 * realized_cost + global_bonus
-                next_state = env.get_graph_state_for_ev(ev)
-                agent.store_transition(state, action, mixed_r, next_state, action_mask=mask)
-            if ev_dispatch or len(agent.memory) >= batch_size:
-                agent.replay(batch_size)
-            total_reward += reward
-        agent.decay_epsilon()
-        if (e + 1) % 50 == 0:
-            print(f"Episode {e+1}/{episodes}  reward={total_reward:.1f}  ε={agent.epsilon:.3f}")
-    agent.save_model()
-    print("训练完成，模型已保存至 checkpoints/trained_dqn.pth")
+from training.config import TrainConfig, EvalConfig
 
 
 def cmd_train_real(args):
-    """联邦 DQN 训练（真实路网 + 可视化）"""
-    from visualization.run_training_real_map import run_training_real
-    cfg = _resolve_scale(args.command, args.debug, args.medium, args.quick)
-    # epsilon 目标终值：
-    #   debug(20ep)  → 0.80，保持充分探索
-    #   quick(60ep)  → 0.30，能看出策略是否收敛
-    #   medium(100ep)→ 0.90，基本随机（episode 太少，过早利用反而变差）
-    #   full(500ep)  → 0.10，500 个 episode 足够完成探索→利用过渡
+    """联邦 DQN 训练（真实路网）"""
+    from training.trainer import run_training_real
+
     if args.debug:
-        epsilon_final = 0.80
+        cfg = TrainConfig.debug()
     elif args.quick:
-        epsilon_final = 0.30
+        cfg = TrainConfig.quick()
     elif args.medium:
-        epsilon_final = 0.90
+        cfg = TrainConfig.medium()
     else:
-        epsilon_final = 0.10
+        cfg = TrainConfig()
 
-    if args.medium:
-        step_local_train_steps = 1
-        step_train_interval = 4
-    elif args.debug or args.quick:
-        step_local_train_steps = 2
-        step_train_interval = 1
-    else:
-        step_local_train_steps = 1
-        step_train_interval = 2
-
-    full_batch_size = 256 if not (args.debug or args.quick or args.medium) else cfg["batch_size"]
+    cfg.use_dp = args.dp
+    cfg.dp_noise_multiplier = args.dp_sigma
 
     run_training_real(
-        num_evs=cfg["num_evs"],
-        episodes=cfg["episodes"],
-        steps_per_episode=cfg["steps"],
-        fed_rounds_per_episode=cfg["fed_rounds"],
-        batch_size=full_batch_size,
-        step_local_train_steps=step_local_train_steps,
-        step_train_interval=step_train_interval,
-        use_dp=args.dp,
-        dp_noise_multiplier=args.dp_sigma,
-        epsilon_final=epsilon_final,
-    )
-
-
-def cmd_train_viz(args):
-    """基础训练 + 可视化输出"""
-    from visualization.run_training_with_viz import run_training
-    cfg = _resolve_scale(args.command, args.debug, args.medium)
-    run_training(
-        episodes=cfg["episodes"],
-        steps_per_episode=cfg["steps"],
-        num_evs=cfg["num_evs"],
+        num_evs=cfg.num_evs,
+        episodes=cfg.episodes,
+        steps_per_episode=cfg.steps_per_episode,
+        fed_rounds_per_episode=cfg.fed_rounds_per_episode,
+        batch_size=cfg.batch_size,
+        step_local_train_steps=cfg.step_local_train_steps,
+        step_train_interval=cfg.step_train_interval,
+        proximal_mu=cfg.proximal_mu,
+        use_dp=cfg.use_dp,
+        dp_noise_multiplier=cfg.dp_noise_multiplier,
+        dp_clip_C=cfg.dp_clip_C,
+        epsilon_final=cfg.epsilon_final,
+        checkpoint_interval=cfg.checkpoint_interval,
+        mixed_reward_scale=cfg.mixed_reward_scale,
+        mixed_reward_min=cfg.mixed_reward_min,
+        mixed_reward_max=cfg.mixed_reward_max,
     )
 
 
 def cmd_evaluate(args):
     """评估已训练模型（随机 / 贪心 / DQN / 联邦DQN 四方对比）"""
     from evaluation.run_evaluation import run_evaluation, _compare_table
-    cfg = _resolve_scale(args.command, args.debug, args.medium, args.quick)
-    eval_cfg = _resolve_evaluation_scale(args.debug, args.medium, args.quick)
 
-    USE_REAL_MAP = True
-    EPISODES = eval_cfg["episodes"]
-    STEPS = eval_cfg["steps"]
-    rng = random.Random(DEFAULT_EVAL_BASE_SEED)
-    episode_seeds = [rng.randint(0, 10000) for _ in range(EPISODES)]
+    if args.debug:
+        eval_cfg = EvalConfig.debug()
+    elif args.quick:
+        eval_cfg = EvalConfig.quick()
+    elif args.medium:
+        eval_cfg = EvalConfig.medium()
+    else:
+        eval_cfg = EvalConfig()
 
-    map_str = "真实路网 (珠江新城)" if USE_REAL_MAP else "3x3 人工网格"
-    print(f"\n>>>> 当前评估使用的地图环境: {map_str} <<<<\n")
+    # 预先生成固定种子，保证四种策略在相同 episode 上评估
+    rng = random.Random(eval_cfg.base_seed)
+    episode_seeds = [rng.randint(0, 10000) for _ in range(eval_cfg.episodes)]
 
-    print(f"[Evaluation Seeds] base_seed={DEFAULT_EVAL_BASE_SEED}, episode_seeds={episode_seeds}")
+    print(f"\n>>>> 评估地图: 真实路网 (珠江新城) <<<<\n")
+    print(f"[Evaluation Seeds] base_seed={eval_cfg.base_seed}, "
+          f"episode_seeds={episode_seeds}")
+
+    common = dict(
+        episodes=eval_cfg.episodes,
+        steps_per_episode=eval_cfg.steps_per_episode,
+        use_real_map=True,
+        num_evs=eval_cfg.num_evs,
+        num_stations=eval_cfg.num_stations,
+        episode_seeds=episode_seeds,
+    )
+
     print("=" * 62)
     print("  【1/4】随机策略基线")
     print("=" * 62)
-    random_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                   use_random=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"], num_stations=4,
-                                   episode_seeds=episode_seeds)
+    random_report = run_evaluation(**common, use_random=True)
 
-    print("\n")
-    print("=" * 62)
+    print("\n" + "=" * 62)
     print("  【2/4】贪心策略基线")
     print("=" * 62)
-    greedy_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                   use_greedy=True, use_real_map=USE_REAL_MAP,
-                                   num_evs=cfg["num_evs"], num_stations=4,
-                                   episode_seeds=episode_seeds)
+    greedy_report = run_evaluation(**common, use_greedy=True)
 
-    print("\n")
-    print("=" * 62)
+    print("\n" + "=" * 62)
     print("  【3/4】DQN 策略评估")
     print("=" * 62)
-    dqn_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_dqn_real.pth" if USE_REAL_MAP else "trained_dqn.pth",
-                                num_evs=cfg["num_evs"], num_stations=4,
-                                episode_seeds=episode_seeds)
+    dqn_report = run_evaluation(**common, model_file="trained_dqn_real.pth")
 
-    print("\n")
-    print("=" * 62)
+    print("\n" + "=" * 62)
     print("  【4/4】联邦 DQN 策略评估")
     print("=" * 62)
-    fed_report = run_evaluation(episodes=EPISODES, steps_per_episode=STEPS,
-                                use_random=False, use_real_map=USE_REAL_MAP,
-                                model_file="trained_federated_dqn_real.pth",
-                                num_evs=cfg["num_evs"], num_stations=4,
-                                episode_seeds=episode_seeds)
+    fed_report = run_evaluation(**common, model_file="trained_federated_dqn_real.pth")
 
-    _compare_table({"Random": random_report, "Greedy": greedy_report,
-                    "DQN": dqn_report, "FedDQN": fed_report})
-
-
-def cmd_download_map(_args):
-    """下载真实城市路网"""
-    import download_map  # noqa: F401
+    _compare_table({
+        "Random": random_report,
+        "Greedy": greedy_report,
+        "DQN":    dqn_report,
+        "FedDQN": fed_report,
+    })
 
 
 COMMANDS = {
-    "train":        cmd_train,
-    "train-real":   cmd_train_real,
-    "train-viz":    cmd_train_viz,
-    "evaluate":     cmd_evaluate,
-    "download-map": cmd_download_map,
+    "train-real": cmd_train_real,
+    "evaluate":   cmd_evaluate,
 }
 
 if __name__ == "__main__":
@@ -294,32 +124,12 @@ if __name__ == "__main__":
         default="evaluate",
         help="要执行的操作",
     )
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument(
-        "--debug",
-        action="store_true",
-        help="启用小规模快速测试参数",
-    )
-    mode_group.add_argument(
-        "--medium",
-        action="store_true",
-        help="启用中等规模测试参数",
-    )
-    mode_group.add_argument(
-        "--quick",
-        action="store_true",
-        help="极速验证模式：50辆EV，60 episodes，epsilon→0.30，约10分钟",
-    )
-    parser.add_argument(
-        "--dp",
-        action="store_true",
-        help="启用差分隐私训练 (DP-SGD)",
-    )
-    parser.add_argument(
-        "--dp-sigma",
-        type=float,
-        default=1.0,
-        help="DP-SGD 高斯噪声倍率 sigma，默认 1.0",
-    )
+    scale_group = parser.add_mutually_exclusive_group()
+    scale_group.add_argument("--debug",  action="store_true", help="极小规模，约 2 分钟")
+    scale_group.add_argument("--medium", action="store_true", help="中等规模，约 30 分钟")
+    scale_group.add_argument("--quick",  action="store_true", help="快速验证，约 10 分钟")
+    parser.add_argument("--dp",       action="store_true", help="启用差分隐私训练 (DP-SGD)")
+    parser.add_argument("--dp-sigma", type=float, default=1.0,
+                        help="DP-SGD 高斯噪声倍率 σ，默认 1.0")
     args = parser.parse_args()
     COMMANDS[args.command](args)
