@@ -32,6 +32,10 @@ except ImportError:
     HAS_OSMNX = False
 
 
+def _safe_path_display(path: str) -> str:
+    return os.path.basename(path)
+
+
 # ============================================================
 # 核心加载函数
 # ============================================================
@@ -156,10 +160,11 @@ def load_road_network_from_file(
     max_nodes: int = 40,
     cache_dir: str = None,
     seed: int = 42,
+    station_node_ids: list = None,
 ) -> tuple:
     """
     从本地 .graphml 或 .osm 文件加载真实路网，无需联网。
-    推荐通过项目根目录的 download_map.py 生成 .graphml 文件。
+    推荐通过项目根目录下的 map_tools/download_map.py 生成 .graphml 文件。
     返回格式与 load_road_network 完全一致。
     """
     if not HAS_OSMNX:
@@ -177,13 +182,13 @@ def load_road_network_from_file(
     fname = os.path.splitext(os.path.basename(filepath))[0]
     cache_file = os.path.join(cache_dir, f"local_{fname}_n{max_nodes}_s{num_stations}.pkl")
 
-    if os.path.exists(cache_file):
+    if station_node_ids is None and os.path.exists(cache_file):
         print(f"[LocalFile] 从缓存加载路网: {cache_file}")
         with open(cache_file, "rb") as f:
             return pickle.load(f)
 
     ext = os.path.splitext(filepath)[1].lower()
-    print(f"[LocalFile] 正在加载本地路网文件: {filepath}")
+    print(f"[LocalFile] 正在加载本地路网文件: {_safe_path_display(filepath)}")
 
     if ext == ".graphml":
         G_raw = ox.load_graphml(filepath)
@@ -193,8 +198,9 @@ def load_road_network_from_file(
         raise ValueError(f"不支持的文件格式 '{ext}'，请使用 .graphml 或 .osm")
 
     G_undirected = ox.convert.to_undirected(G_raw)
-    # convert_node_labels_to_integers 兼容 consolidate_intersections 产生的 frozenset 节点 ID
-    G_undirected = nx.convert_node_labels_to_integers(G_undirected)
+    if not _has_contiguous_integer_nodes(G_undirected):
+        # convert_node_labels_to_integers 兼容 consolidate_intersections 产生的 frozenset 节点 ID
+        G_undirected = nx.convert_node_labels_to_integers(G_undirected)
 
     if not nx.is_connected(G_undirected):
         G_undirected = G_undirected.subgraph(
@@ -215,19 +221,30 @@ def load_road_network_from_file(
     if G_final.number_of_nodes() < num_stations:
         raise RuntimeError(
             f"路网节点数({G_final.number_of_nodes()})少于充电站数({num_stations})。\n"
-            "请增大 RADIUS_METERS 或减小 CONSOLIDATE_TOL 后重新运行 download_map.py。"
+            "请增大 RADIUS_METERS 或减小 CONSOLIDATE_TOL 后重新运行 map_tools/download_map.py。"
         )
 
     positions = {n: (d.get("x", 0.0), d.get("y", 0.0))
                  for n, d in G_final.nodes(data=True)}
-    station_nodes = _select_station_nodes(G_final, num_stations, seed)
+    if station_node_ids is not None:
+        station_nodes = [int(node) for node in station_node_ids]
+        missing = [node for node in station_nodes if node not in G_final.nodes()]
+        if missing:
+            raise ValueError(f"显式 station_node_ids 不在当前图中: {missing}")
+        if len(station_nodes) != num_stations:
+            raise ValueError(
+                f"显式 station_node_ids 数量({len(station_nodes)})与 num_stations({num_stations})不一致"
+            )
+    else:
+        station_nodes = _select_station_nodes(G_final, num_stations, seed)
 
     print(f"[LocalFile] 精简后节点: {G_final.number_of_nodes()}, "
           f"边: {G_final.number_of_edges()}, 充电站: {station_nodes}")
 
     result = (G_final, station_nodes, positions)
-    with open(cache_file, "wb") as f:
-        pickle.dump(result, f)
+    if station_node_ids is None:
+        with open(cache_file, "wb") as f:
+            pickle.dump(result, f)
     return result
 
 
@@ -321,6 +338,15 @@ def _sample_nodes(G: nx.Graph, target_n: int, seed: int) -> nx.Graph:
 
     subG = G.subgraph(visited).copy()
     return nx.convert_node_labels_to_integers(subG)
+
+
+def _has_contiguous_integer_nodes(G: nx.Graph) -> bool:
+    nodes = list(G.nodes())
+    if not nodes:
+        return True
+    if not all(isinstance(n, int) for n in nodes):
+        return False
+    return sorted(nodes) == list(range(len(nodes)))
 
 
 def _select_station_nodes(G: nx.Graph, num_stations: int, seed: int) -> list:

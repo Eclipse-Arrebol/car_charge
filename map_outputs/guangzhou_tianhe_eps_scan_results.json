@@ -1,0 +1,660 @@
+{
+  "config": {
+    "eps_values": [
+      15,
+      20,
+      25,
+      30,
+      35,
+      40
+    ],
+    "short_max_m": 1000.0,
+    "medium_max_m": 3000.0,
+    "samples_per_bucket": 200,
+    "random_seed": 20260418
+  },
+  "scan_results": [
+    {
+      "eps": 15,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1425,
+          "edges": 2239,
+          "compression_ratio": 0.9007585335018964
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1425,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 50
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.011824458763080201,
+              "median": 0.0,
+              "p95": 0.04919688890403402,
+              "p99": 0.15409212997898739
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.005713221051362079,
+              "median": 0.004747687043661521,
+              "p95": 0.017855021548705486,
+              "p99": 0.024460657995925422
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.00551689853558089,
+              "median": 0.00524675621826615,
+              "p95": 0.011709446374710854,
+              "p99": 0.014116973585236106
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 2239,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    },
+    {
+      "eps": 20,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1350,
+          "edges": 2126,
+          "compression_ratio": 0.8533501896333755
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1350,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 49
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.02899727572723679,
+              "median": 0.008518579566465675,
+              "p95": 0.1502295158231867,
+              "p99": 0.3602659369408526
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.01011855270609552,
+              "median": 0.008241101305997828,
+              "p95": 0.025828583504076776,
+              "p99": 0.03427567098409735
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.008976255088508675,
+              "median": 0.00857322914321591,
+              "p95": 0.01772469604513054,
+              "p99": 0.02026618194608861
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 2126,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    },
+    {
+      "eps": 25,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1302,
+          "edges": 2056,
+          "compression_ratio": 0.8230088495575221
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1302,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 49
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.01,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 198,
+              "mean": 0.0394246919077761,
+              "median": 0.012481509407786893,
+              "p95": 0.15096064895795092,
+              "p99": 0.4244912986938624
+            },
+            "intra_cluster_stats": {
+              "count": 2,
+              "mean": 33.689068225124174,
+              "median": 33.689068225124174,
+              "p95": 41.304355686039926,
+              "p99": 41.98127012701021,
+              "max": 42.15049873725279
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 198,
+              "same_cluster": 2,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.015153466920718789,
+              "median": 0.013906593059192819,
+              "p95": 0.041678166011210376,
+              "p99": 0.057829443692385796
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.013750036978461775,
+              "median": 0.012217307736909024,
+              "p95": 0.02763339992750117,
+              "p99": 0.033500136479793025
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 2056,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    },
+    {
+      "eps": 30,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1231,
+          "edges": 1948,
+          "compression_ratio": 0.7781289506953224
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1231,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 48
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.01,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 198,
+              "mean": 0.052806965272150445,
+              "median": 0.02423388039564289,
+              "p95": 0.17396475837863143,
+              "p99": 0.4244912986938624
+            },
+            "intra_cluster_stats": {
+              "count": 2,
+              "mean": 33.689068225124174,
+              "median": 33.689068225124174,
+              "p95": 41.304355686039926,
+              "p99": 41.98127012701021,
+              "max": 42.15049873725279
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 198,
+              "same_cluster": 2,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.02500394388468468,
+              "median": 0.023989353543963858,
+              "p95": 0.06049058879578649,
+              "p99": 0.07656207013272952
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.02264407940944765,
+              "median": 0.021571147524301268,
+              "p95": 0.04375066095728231,
+              "p99": 0.054313916660287474
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 1948,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    },
+    {
+      "eps": 35,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1166,
+          "edges": 1851,
+          "compression_ratio": 0.7370417193426043
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1166,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 48
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.02,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 196,
+              "mean": 0.06515780348955595,
+              "median": 0.04385961975027501,
+              "p95": 0.20411337928826634,
+              "p99": 0.40743029865074093
+            },
+            "intra_cluster_stats": {
+              "count": 4,
+              "mean": 56.040984457437915,
+              "median": 49.72795828732477,
+              "p95": 93.15413868640007,
+              "p99": 98.21513457096523,
+              "max": 99.48038354210655
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 196,
+              "same_cluster": 4,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.03625421179417464,
+              "median": 0.03389937963371281,
+              "p95": 0.08154345174596561,
+              "p99": 0.10842066794348013
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.03405567609551908,
+              "median": 0.033040579690864214,
+              "p95": 0.06461262741315595,
+              "p99": 0.08242079673817014
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 1851,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    },
+    {
+      "eps": 40,
+      "metrics": {
+        "training_graph_stats": {
+          "nodes": 1122,
+          "edges": 1782,
+          "compression_ratio": 0.7092288242730721
+        },
+        "integrity": {
+          "component_count": 1,
+          "largest_component_size": 1122,
+          "largest_component_ratio": 1.0,
+          "isolate_count": 0,
+          "degree_one_count": 48
+        },
+        "buckets": {
+          "short": {
+            "same_cluster_rate": 0.03,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 194,
+              "mean": 0.07983731210877854,
+              "median": 0.05729041292749078,
+              "p95": 0.23857443580266394,
+              "p99": 0.4077845329006937
+            },
+            "intra_cluster_stats": {
+              "count": 6,
+              "mean": 49.65989189788734,
+              "median": 40.29019910740687,
+              "p95": 88.9366421159291,
+              "p99": 97.37163525687107,
+              "max": 99.48038354210655
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 194,
+              "same_cluster": 6,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "medium": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.046885090811591514,
+              "median": 0.04477025974503914,
+              "p95": 0.09853674475022389,
+              "p99": 0.12942667467384464
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          },
+          "long": {
+            "same_cluster_rate": 0.0,
+            "no_path_rate": 0.0,
+            "missing_mapping_rate": 0.0,
+            "cross_cluster_metrics": {
+              "count": 200,
+              "mean": 0.04252541007402726,
+              "median": 0.0428681544583024,
+              "p95": 0.07673379228536209,
+              "p99": 0.09180911953342509
+            },
+            "intra_cluster_stats": {
+              "count": 0,
+              "mean": null,
+              "median": null,
+              "p95": null,
+              "p99": null,
+              "max": null
+            },
+            "counts": {
+              "sampled_pairs": 200,
+              "cross_cluster_kept": 200,
+              "same_cluster": 0,
+              "no_path": 0,
+              "missing_mapping": 0
+            }
+          }
+        },
+        "edge_length_error": {
+          "count": 1782,
+          "mean": 0.0,
+          "median": 0.0,
+          "p95": 0.0,
+          "p99": 0.0
+        }
+      }
+    }
+  ]
+}

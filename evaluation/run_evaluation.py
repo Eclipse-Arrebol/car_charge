@@ -19,6 +19,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from env.base_env import TrafficPowerEnv
+from env.graph_mapping import resolve_station_nodes
 from env.real_env import RealTrafficEnv
 from evaluation.metrics import Evaluator
 from evaluation.strategies import (
@@ -39,18 +40,26 @@ def _build_eval_env(eval_cfg, seed):
     use_real_map = getattr(eval_cfg, "use_real_map", True)
     if use_real_map:
         graphml_path = getattr(
-            eval_cfg, "graphml_file", os.path.join(project_root, "zhujiang_new_town.graphml")
+            eval_cfg,
+            "graphml_file",
+            os.path.join(project_root, "map_outputs", "baseline_eps40_artifacts", "G_L0_indexed.graphml"),
         )
         if not os.path.exists(graphml_path):
             print(f"[错误] 未找到真实路网文件: {graphml_path}")
             print("自动回退到 3x3 基础网格环境。")
             return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
+        station_node_ids = None
+        station_cfg = getattr(eval_cfg, "station_config_file", None)
+        station_key = getattr(eval_cfg, "station_id_key", None)
+        if station_cfg and station_key:
+            station_node_ids = resolve_station_nodes(station_cfg, station_key)
         return RealTrafficEnv(
             graphml_file=graphml_path,
             num_stations=eval_cfg.num_stations,
             num_evs=eval_cfg.num_evs,
             max_nodes=eval_cfg.max_nodes,
             seed=seed,
+            station_node_ids=station_node_ids,
         )
     return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
 
@@ -145,7 +154,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         use_real_map:      True -> 使用真实路网 (如珠江新城); False -> 使用 3x3 网格
         model_file:        指定 checkpoints/ 下的权重文件名，None 时自动选择
     """
-    graphml_path = os.path.join(project_root, "zhujiang_new_town.graphml")
+    graphml_path = os.path.join(project_root, "map_outputs", "baseline_eps40_artifacts", "G_L0_indexed.graphml")
     eval_cfg = EvalConfig(
         episodes=episodes,
         steps_per_episode=steps_per_episode,

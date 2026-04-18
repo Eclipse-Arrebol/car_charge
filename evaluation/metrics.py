@@ -24,7 +24,7 @@ import numpy as np
 class CostParams:
     """集中管理所有单价参数，方便后续灵活调整"""
     VOTT = 30.0            # 时间价值 (CNY/h)  — Value Of Travel Time
-    STEP_DURATION_H = 1.0  # 每步代表的时间 (h)，当前 1步=1小时
+    STEP_DURATION_H = 1/6  # 每步代表的时间 (h)，当前 1步=10分钟
     GRID_BUY_PRICE = 0.6   # 电网购电基准价格 (CNY/kWh)
 
 
@@ -175,7 +175,7 @@ class GridMetrics:
         # 配电网购电成本: 总功率(kWh) × 分时电价系数 × 基准电价
         realized = info.get("realized_power", 0.0)
         tou = info.get("tou_multiplier", 1.0)
-        self._accum_grid_cost += realized * tou * self.p.GRID_BUY_PRICE
+        self._accum_grid_cost += realized * self.p.STEP_DURATION_H * tou * self.p.GRID_BUY_PRICE
 
         # 累计线路损耗
         self._accum_loss += info.get("line_losses", power_grid.total_loss)

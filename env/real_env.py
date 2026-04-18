@@ -17,6 +17,13 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 
+def _safe_path_display(path: str) -> str:
+    try:
+        return os.path.relpath(path, _root)
+    except ValueError:
+        return path
+
+
 class RealTrafficEnv(TrafficPowerEnv):
     def __init__(
         self,
@@ -31,6 +38,7 @@ class RealTrafficEnv(TrafficPowerEnv):
         dist_m: int = 1500,
         graphml_file: str = None,
         offline: bool = False,
+        station_node_ids: list = None,
     ):
         if graphml_file is not None:
             graph, station_nodes, self.node_positions = load_road_network_from_file(
@@ -39,6 +47,7 @@ class RealTrafficEnv(TrafficPowerEnv):
                 max_nodes=max_nodes,
                 cache_dir=cache_dir,
                 seed=seed,
+                station_node_ids=station_node_ids,
             )
         elif lat is not None and lon is not None:
             graph, station_nodes, self.node_positions = load_road_network_by_point(
@@ -85,8 +94,8 @@ class RealTrafficEnv(TrafficPowerEnv):
 
         self.power_limit = 15.0
         self.time_step = 0
-        self.steps_per_day = 24
-        self.step_duration_h = 1.0
+        self.steps_per_day = 144
+        self.step_duration_h = 1 / 6
         self.bpr_alpha = 0.15
         self.bpr_beta = 4.0
         self.edge_active_counts = {}
@@ -124,8 +133,8 @@ class RealTrafficEnv(TrafficPowerEnv):
             self.evs.append(EV(i, start))
 
         self.time_step = 0
-        self.steps_per_day = 24
-        self.step_duration_h = 1.0
+        self.steps_per_day = 144
+        self.step_duration_h = 1 / 6
         self.edge_active_counts = {}
         self.tou_multiplier = 1.0
         self.price_noise = 0.0

@@ -1,0 +1,59 @@
+{
+  "selection_rule": {
+    "description": "High-degree road nodes with spacing constraint on L0 and unique L1 projection.",
+    "num_stations": 4,
+    "seed": 42,
+    "spacing_rule": "shortest-path hop distance >= floor(|V_L0| / (3 * num_stations))",
+    "projection_rule": "pi(S_L0) must be injective for the chosen station set"
+  },
+  "graphs": {
+    "l0_graph_path": "map_outputs\\baseline_eps40_artifacts\\G_L0_indexed.graphml",
+    "l1_graph_path": "map_outputs\\baseline_eps40_artifacts\\G_L1_eps40.graphml",
+    "node_map_path": "map_outputs\\baseline_eps40_artifacts\\node_map_eps40.json",
+    "edge_map_path": "map_outputs\\baseline_eps40_artifacts\\edge_map_eps40.json",
+    "anchor_path": "map_outputs\\baseline_eps40_artifacts\\cluster_anchors_eps40.json"
+  },
+  "l0_station_nodes": [
+    394,
+    147,
+    182,
+    708
+  ],
+  "l1_station_nodes": [
+    306,
+    448,
+    443,
+    930
+  ],
+  "station_pairs": [
+    {
+      "station_id": 0,
+      "l0_node": 394,
+      "l1_node": 306,
+      "raw_l0_node": "4368102631"
+    },
+    {
+      "station_id": 1,
+      "l0_node": 147,
+      "l1_node": 448,
+      "raw_l0_node": "2052210675"
+    },
+    {
+      "station_id": 2,
+      "l0_node": 182,
+      "l1_node": 443,
+      "raw_l0_node": "2346924414"
+    },
+    {
+      "station_id": 3,
+      "l0_node": 708,
+      "l1_node": 930,
+      "raw_l0_node": "4404251335"
+    }
+  ],
+  "projection_collisions": [],
+  "notes": [
+    "Action index order is shared between L0 and L1.",
+    "All evaluation for the ablation should be performed on the L0 graph."
+  ]
+}

@@ -7,13 +7,16 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from agents.FederatedDQN import FederatedClient, FederatedServer
+from env.graph_mapping import resolve_station_nodes
 from env.real_env import RealTrafficEnv
 from train import _finish_progress_line, _print_training_progress
 from training.config import TrainConfig
 from visualization.visualize_training import TrainingVisualizer
 
 
-LOCAL_GRAPHML = os.path.join(project_root, "zhujiang_new_town.graphml")
+LOCAL_GRAPHML = os.path.join(
+    project_root, "map_outputs", "baseline_eps40_artifacts", "G_L0_indexed.graphml"
+)
 OFFLINE_FALLBACK = False
 PLACE = "Wuchang District, Wuhan, China"
 
@@ -85,13 +88,24 @@ class FederatedTrainer:
         graphml_file = getattr(self.cfg, "graphml_file", LOCAL_GRAPHML)
         if graphml_file is not None:
             print(f"[模式 B] 使用本地 GraphML 文件: {graphml_file}")
+            station_ids = self._resolve_station_nodes()
+            if station_ids is not None:
+                print(f"[模式 B] 使用显式充电站节点: {station_ids}")
         elif OFFLINE_FALLBACK:
             print("[模式 C] 使用离线合成路网（Watts-Strogatz）")
         else:
             print(f"[模式 A] 自动联网下载路网: {PLACE}")
 
+    def _resolve_station_nodes(self):
+        station_cfg = getattr(self.cfg, "station_config_file", None)
+        station_key = getattr(self.cfg, "station_id_key", None)
+        if not station_cfg or not station_key:
+            return None
+        return resolve_station_nodes(station_cfg, station_key)
+
     def _build_env(self, seed):
         graphml_file = getattr(self.cfg, "graphml_file", LOCAL_GRAPHML)
+        station_node_ids = self._resolve_station_nodes()
         if graphml_file is not None:
             return RealTrafficEnv(
                 graphml_file=graphml_file,
@@ -99,6 +113,7 @@ class FederatedTrainer:
                 num_evs=self.cfg.num_evs,
                 max_nodes=self.cfg.max_nodes,
                 seed=seed,
+                station_node_ids=station_node_ids,
             )
         if OFFLINE_FALLBACK:
             return RealTrafficEnv(
@@ -164,11 +179,7 @@ class FederatedTrainer:
                     actions[ev.id] = action
 
                     metrics = env.estimate_action_metrics(ev, action, pending_counts)
-                    per_ev_r = -metrics["generalized_cost"]
-                    per_ev_r -= 18.0 * metrics["queue_time_h"]
-                    per_ev_r -= 8.0 * metrics["service_time_h"]
-                    per_ev_r -= 1.0 * metrics["trip_time_h"]
-                    per_ev_r -= 3.0 * metrics["grid_load_ratio"]
+                    per_ev_r = -(metrics["queue_time_h"] + metrics["trip_time_h"])
 
                     stats["episode_queue_h_sum"] += metrics["queue_time_h"]
                     stats["episode_trip_h_sum"] += metrics["trip_time_h"]
@@ -182,29 +193,14 @@ class FederatedTrainer:
                 _, reward, _, info = env.step(actions)
                 stats["episode_env_step_s"] += time.perf_counter() - t0
 
-                global_bonus = reward / max(1, len(ev_dispatch)) * 0.3
                 t0 = time.perf_counter()
                 for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
-                    realized = info["decision_costs"].get(ev.id, {})
-                    realized_cost = realized.get("generalized_cost", 0.0)
-                    realized_queue_h = realized.get("queue_time_h", 0.0)
-                    realized_service_h = realized.get("service_time_h", 0.0)
-                    mixed_r = (
-                        per_ev_r
-                        - 0.2 * realized_cost
-                        - 10.0 * realized_queue_h
-                        - 4.0 * realized_service_h
-                        + global_bonus
-                    )
-                    mixed_r = mixed_r / max(1e-6, self.cfg.mixed_reward_scale)
-                    mixed_r = max(self.cfg.mixed_reward_min, min(self.cfg.mixed_reward_max, mixed_r))
+                    mixed_r = per_ev_r / 2.0
+                    mixed_r = max(-1.0, min(0.0, mixed_r))
                     next_ev_state = env.get_graph_state_for_ev(ev)
                     client.store_transition(
                         ev_state, act, mixed_r, next_ev_state, action_mask=mask
                     )
-                    stats["episode_realized_queue_h_sum"] += realized_queue_h
-                    stats["episode_realized_service_h_sum"] += realized_service_h
-                    stats["episode_generalized_cost_sum"] += realized_cost
                     stats["total_mixed_reward"] += mixed_r
                     stats["total_decisions"] += 1
                 stats["episode_store_s"] += time.perf_counter() - t0
@@ -414,6 +410,10 @@ def run_training_real(
     mixed_reward_scale=MIXED_REWARD_SCALE,
     mixed_reward_min=MIXED_REWARD_MIN,
     mixed_reward_max=MIXED_REWARD_MAX,
+    graphml_file=LOCAL_GRAPHML,
+    station_config_file=None,
+    station_id_key="l0_station_nodes",
+    max_nodes=MAX_NODES,
 ):
     cfg = TrainConfig(
         num_evs=num_evs,
@@ -433,8 +433,10 @@ def run_training_real(
         dp_noise_multiplier=dp_noise_multiplier,
         dp_clip_C=dp_clip_C,
         num_stations=NUM_STATS,
-        max_nodes=MAX_NODES,
-        graphml_file=LOCAL_GRAPHML,
+        max_nodes=max_nodes,
+        graphml_file=graphml_file,
+        station_config_file=station_config_file or getattr(TrainConfig(), "station_config_file", None),
+        station_id_key=station_id_key,
         checkpoint_interval=checkpoint_interval,
     )
     FederatedTrainer(cfg).train()

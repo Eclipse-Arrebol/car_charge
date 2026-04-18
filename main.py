@@ -12,18 +12,38 @@ import random
 from training.config import TrainConfig, EvalConfig
 
 
+def _apply_train_scale(base_cfg, scale_cfg):
+    for attr in [
+        "num_evs",
+        "episodes",
+        "steps_per_episode",
+        "fed_rounds_per_episode",
+        "batch_size",
+        "step_local_train_steps",
+        "step_train_interval",
+        "fed_local_steps",
+        "epsilon_final",
+        "checkpoint_interval",
+    ]:
+        setattr(base_cfg, attr, getattr(scale_cfg, attr))
+    return base_cfg
+
+
 def cmd_train_real(args):
     """联邦 DQN 训练（真实路网）"""
     from training.trainer import run_training_real
 
-    if args.debug:
-        cfg = TrainConfig.debug()
-    elif args.quick:
-        cfg = TrainConfig.quick()
-    elif args.medium:
-        cfg = TrainConfig.medium()
+    if args.graph_group == "l1":
+        cfg = TrainConfig.ablation_l1()
     else:
-        cfg = TrainConfig()
+        cfg = TrainConfig.ablation_l0()
+
+    if args.debug:
+        cfg = _apply_train_scale(cfg, TrainConfig.debug())
+    elif args.quick:
+        cfg = _apply_train_scale(cfg, TrainConfig.quick())
+    elif args.medium:
+        cfg = _apply_train_scale(cfg, TrainConfig.medium())
 
     cfg.use_dp = args.dp
     cfg.dp_noise_multiplier = args.dp_sigma
@@ -45,6 +65,10 @@ def cmd_train_real(args):
         mixed_reward_scale=cfg.mixed_reward_scale,
         mixed_reward_min=cfg.mixed_reward_min,
         mixed_reward_max=cfg.mixed_reward_max,
+        graphml_file=cfg.graphml_file,
+        station_config_file=cfg.station_config_file,
+        station_id_key=cfg.station_id_key,
+        max_nodes=cfg.max_nodes,
     )
 
 
@@ -131,5 +155,11 @@ if __name__ == "__main__":
     parser.add_argument("--dp",       action="store_true", help="启用差分隐私训练 (DP-SGD)")
     parser.add_argument("--dp-sigma", type=float, default=1.0,
                         help="DP-SGD 高斯噪声倍率 σ，默认 1.0")
+    parser.add_argument(
+        "--graph-group",
+        choices=["l0", "l1"],
+        default="l0",
+        help="训练输入图表示：l0=完整真实图，l1=eps40训练图",
+    )
     args = parser.parse_args()
     COMMANDS[args.command](args)

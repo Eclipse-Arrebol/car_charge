@@ -17,7 +17,14 @@ import os
 
 # 项目根目录（相对于本文件向上两级）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DEFAULT_GRAPHML = os.path.join(_PROJECT_ROOT, "zhujiang_new_town.graphml")
+_DEFAULT_STATION_CONFIG = os.path.join(_PROJECT_ROOT, "config", "stations.json")
+_DEFAULT_L0_GRAPHML = os.path.join(
+    _PROJECT_ROOT, "map_outputs", "baseline_eps40_artifacts", "G_L0_indexed.graphml"
+)
+_DEFAULT_L1_GRAPHML = os.path.join(
+    _PROJECT_ROOT, "map_outputs", "baseline_eps40_artifacts", "G_L1_eps40.graphml"
+)
+_DEFAULT_GRAPHML = _DEFAULT_L0_GRAPHML
 
 
 @dataclass
@@ -50,8 +57,10 @@ class TrainConfig:
 
     # ── 环境 ──────────────────────────────────────────────────────────
     num_stations: int = 4           # 充电站数量
-    max_nodes: int = 200            # 路网最大节点数
+    max_nodes: int = 800            # 路网最大节点数
     graphml_file: str = field(default_factory=lambda: _DEFAULT_GRAPHML)
+    station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
+    station_id_key: str = "l0_station_nodes"
 
     # ── 检查点 ────────────────────────────────────────────────────────
     checkpoint_interval: int = 20   # 每隔多少 episode 保存一次检查点
@@ -90,6 +99,24 @@ class TrainConfig:
             epsilon_final=0.90,
         )
 
+    @classmethod
+    def ablation_l0(cls) -> "TrainConfig":
+        return cls(
+            graphml_file=_DEFAULT_L0_GRAPHML,
+            max_nodes=9999,
+            station_config_file=_DEFAULT_STATION_CONFIG,
+            station_id_key="l0_station_nodes",
+        )
+
+    @classmethod
+    def ablation_l1(cls) -> "TrainConfig":
+        return cls(
+            graphml_file=_DEFAULT_L1_GRAPHML,
+            max_nodes=9999,
+            station_config_file=_DEFAULT_STATION_CONFIG,
+            station_id_key="l1_station_nodes",
+        )
+
 
 @dataclass
 class EvalConfig:
@@ -108,6 +135,8 @@ class EvalConfig:
 
     # ── 环境 ──────────────────────────────────────────────────────────
     graphml_file: str = field(default_factory=lambda: _DEFAULT_GRAPHML)
+    station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
+    station_id_key: str = "l0_station_nodes"
 
     # ------------------------------------------------------------------
     # 工厂方法
@@ -124,3 +153,12 @@ class EvalConfig:
     @classmethod
     def medium(cls) -> "EvalConfig":
         return cls(episodes=20, steps_per_episode=1200)
+
+    @classmethod
+    def ablation_l0(cls) -> "EvalConfig":
+        return cls(
+            graphml_file=_DEFAULT_L0_GRAPHML,
+            max_nodes=9999,
+            station_config_file=_DEFAULT_STATION_CONFIG,
+            station_id_key="l0_station_nodes",
+        )
