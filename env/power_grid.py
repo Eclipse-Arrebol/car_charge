@@ -52,18 +52,10 @@ class _FlexiblePowerGrid(PowerGrid):
     _R_STEP = 0.04
 
     def __init__(self, num_stations: int = 2):
-        self.v_nominal_kv = 0.4
-        self.v_min = 0.95
-        self.v_max = 1.05
-
+        super().__init__()
         self.lines = {
-            f"Grid_{chr(65 + i)}": {
-                "r_ohm": self._BASE_R + i * self._R_STEP
-            }
+            f"Grid_{chr(65 + i)}": {"r_ohm": self._BASE_R + i * self._R_STEP}
             for i in range(num_stations)
         }
-
         self.bus_voltages = {bus: 1.0 for bus in self.lines}
         self.line_losses = {bus: 0.0 for bus in self.lines}
-        self.total_loss = 0.0
-        self.voltage_violations = []

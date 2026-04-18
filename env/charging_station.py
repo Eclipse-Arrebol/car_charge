@@ -52,7 +52,7 @@ class ChargingStation:
             )
             target_energy = max(
                 0.0,
-                (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+                (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
             )
             residual_times.append(target_energy / max(1e-6, ev.charge_efficiency * power))
 
@@ -64,13 +64,13 @@ class ChargingStation:
     def estimate_average_charge_hours(self):
         samples = self.queue + self.connected_evs
         if not samples:
-            return max(0.25, 0.7 * self.max_charger_power / max(1e-6, self.max_charger_power))
+            return 0.7
 
         hours = []
         for ev in samples:
             remaining_energy = max(
                 0.0,
-                (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+                (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
             )
             hours.append(
                 remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
@@ -80,14 +80,14 @@ class ChargingStation:
     def estimate_charge_time_hours(self, ev):
         remaining_energy = max(
             0.0,
-            (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+            (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
         )
         return remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
 
     def estimate_charge_cost(self, ev):
         remaining_energy = max(
             0.0,
-            (ev.target_soc - ev.soc / 100.0) * ev.battery_capacity_kwh
+            (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
         )
         billed_energy = remaining_energy / max(1e-6, ev.charge_efficiency)
         return self.current_price * billed_energy
@@ -109,7 +109,7 @@ class ChargingStation:
 
         upper_bounds = np.array([
             min(self.max_charger_power,
-                max(0.0, (100.0 - ev.soc) / 100.0 * ev.battery_capacity_kwh) /
+                max(0.0, (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh) /
                 max(1e-6, ev.charge_efficiency))
             for ev in self.connected_evs
         ], dtype=float)
@@ -136,7 +136,7 @@ class ChargingStation:
         self.last_total_load = sum(allocation.values())
         return allocation
 
-    def step(self, tou_multiplier=1.0, price_noise=0.0):
+    def step(self, tou_multiplier=1.0, price_noise=0.0, step_duration_h=1.0):
         realized_power = 0.0
 
         while self.queue and len(self.connected_evs) < self.num_chargers:
@@ -150,11 +150,11 @@ class ChargingStation:
         finished = []
         for ev in self.connected_evs:
             power = allocation.get(ev.id, 0.0)
-            energy_kwh = power * 1.0
+            energy_kwh = power * step_duration_h
             soc_increment = (energy_kwh * ev.charge_efficiency / ev.battery_capacity_kwh) * 100.0
             ev.soc = min(100.0, ev.soc + soc_increment)
             realized_power += power
-            ev.total_fee_paid += power * self.current_price
+            ev.total_fee_paid += power * self.current_price * step_duration_h
             ev.total_energy_charged += energy_kwh
 
             if ev.soc >= 95.0:

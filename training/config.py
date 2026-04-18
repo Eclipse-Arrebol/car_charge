@@ -27,7 +27,7 @@ class TrainConfig:
     # ── 规模 ──────────────────────────────────────────────────────────
     num_evs: int = 100              # 每个联邦客户端的 EV 数量
     episodes: int = 500             # 训练 episode 总数
-    steps_per_episode: int = 500    # 每 episode 的仿真步数
+    steps_per_episode: int = 3000    # 每 episode 的仿真步数
     fed_rounds_per_episode: int = 1 # 每 episode 结束后的联邦聚合轮数
     batch_size: int = 256           # 经验回放采样批大小
 
@@ -64,7 +64,7 @@ class TrainConfig:
     def debug(cls) -> "TrainConfig":
         """极小规模，约 2 分钟，用于验证逻辑是否跑通。"""
         return cls(
-            num_evs=10, episodes=20, steps_per_episode=50,
+            num_evs=10, episodes=20, steps_per_episode=300,
             fed_rounds_per_episode=5, batch_size=8,
             step_local_train_steps=2, step_train_interval=1,
             epsilon_final=0.80,
@@ -74,7 +74,7 @@ class TrainConfig:
     def quick(cls) -> "TrainConfig":
         """快速验证模式，约 10 分钟，可观察到策略是否收敛。"""
         return cls(
-            num_evs=50, episodes=60, steps_per_episode=100,
+            num_evs=50, episodes=60, steps_per_episode=600,
             fed_rounds_per_episode=1, batch_size=32,
             step_local_train_steps=2, step_train_interval=1,
             epsilon_final=0.30,
@@ -84,7 +84,7 @@ class TrainConfig:
     def medium(cls) -> "TrainConfig":
         """中等规模，约 30 分钟，用于快速迭代实验。"""
         return cls(
-            num_evs=60, episodes=100, steps_per_episode=200,
+            num_evs=60, episodes=100, steps_per_episode=1200,
             fed_rounds_per_episode=5, batch_size=256,
             step_local_train_steps=1, step_train_interval=4,
             epsilon_final=0.90,
@@ -97,7 +97,7 @@ class EvalConfig:
 
     # ── 规模 ──────────────────────────────────────────────────────────
     episodes: int = 50              # 评估轮数（多轮取均值更稳定）
-    steps_per_episode: int = 500    # 每轮步数
+    steps_per_episode: int = 3000    # 每轮步数
     num_evs: int = 100
     num_stations: int = 4
     max_nodes: int = 9999           # 评估时使用完整路网
@@ -115,12 +115,12 @@ class EvalConfig:
 
     @classmethod
     def debug(cls) -> "EvalConfig":
-        return cls(episodes=5, steps_per_episode=50)
+        return cls(episodes=5, steps_per_episode=300)
 
     @classmethod
     def quick(cls) -> "EvalConfig":
-        return cls(episodes=5, steps_per_episode=100)
+        return cls(episodes=5, steps_per_episode=600)
 
     @classmethod
     def medium(cls) -> "EvalConfig":
-        return cls(episodes=20, steps_per_episode=200)
+        return cls(episodes=20, steps_per_episode=1200)

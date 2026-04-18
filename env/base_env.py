@@ -31,8 +31,8 @@ class TrafficPowerEnv:
 
         self.power_limit = 15.0
         self.time_step = 0
-        self.steps_per_day = 24
-        self.step_duration_h = 1.0
+        self.steps_per_day = 144
+        self.step_duration_h = 1 / 6
         self.bpr_alpha = 0.15
         self.bpr_beta = 4.0
         self.edge_active_counts = {}
@@ -403,7 +403,7 @@ class TrafficPowerEnv:
                 len(station.queue) + len(station.connected_evs) + station.predicted_arrivals + pending
             ) / max(1.0, station.max_queue_len + station.num_chargers)
             data.x[station.traffic_node_id, 17] = float(
-                ev.target_station_idx is not None and station.id == ev.target_station_idx
+                max(0, station.num_chargers - len(station.connected_evs)) / station.num_chargers
             )
 
         if pending_counts:
@@ -542,7 +542,7 @@ class TrafficPowerEnv:
 
         total_realized_power = 0.0
         for station in self.stations:
-            load = station.step(tou_multiplier=self.tou_multiplier, price_noise=self.price_noise)
+            load = station.step(tou_multiplier=self.tou_multiplier, price_noise=self.price_noise, step_duration_h=self.step_duration_h)
             grid_loads[station.power_node_id] += load
             total_realized_power += load
 
@@ -550,7 +550,7 @@ class TrafficPowerEnv:
 
         user_cost = sum(m["generalized_cost"] for m in decision_metrics.values())
         queue_cost = sum(m["queue_time_h"] for m in decision_metrics.values())
-        grid_cost = sum(st.last_billing_price * st.last_total_load for st in self.stations) + 20.0 * self.power_grid.total_loss
+        grid_cost = sum(st.last_billing_price * st.last_total_load * self.step_duration_h for st in self.stations) + 20.0 * self.power_grid.total_loss
         fluct_cost = (total_realized_power - self.prev_total_load) ** 2
         voltage_penalty = 10.0 * len(self.power_grid.voltage_violations)
 
