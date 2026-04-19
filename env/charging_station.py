@@ -64,27 +64,47 @@ class ChargingStation:
         return residual_head + queue_rounds * avg_charge_h
 
     def estimate_average_charge_hours(self):
+        """
+        估算平均单次充电时长（小时）。
+        CC 阶段按额定功率，CV 阶段功率取额定值的 50% 作为保守估计。
+        """
         samples = self.queue + self.connected_evs
         if not samples:
             return 0.7
 
         hours = []
         for ev in samples:
-            remaining_energy = max(
-                0.0,
-                (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
-            )
-            hours.append(
-                remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
-            )
+            hours.append(self.estimate_charge_time_hours(ev))
         return max(0.1, float(np.mean(hours)))
 
     def estimate_charge_time_hours(self, ev):
-        remaining_energy = max(
-            0.0,
-            (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh
-        )
-        return remaining_energy / max(1e-6, ev.charge_efficiency * self.max_charger_power)
+        """
+        估算单辆 EV 完成充电所需时长（小时），基于 CC-CV 曲线。
+        CC 段用额定功率，CV 段用额定功率的 50% 均值近似。
+        """
+        soc = ev.soc
+        target = ev.target_soc
+        eff = max(1e-6, ev.charge_efficiency)
+        cap = ev.battery_capacity_kwh
+
+        if soc >= target:
+            return 0.0
+
+        if soc < self._CC_CV_THRESHOLD:
+            cc_energy = (self._CC_CV_THRESHOLD - soc) / 100.0 * cap
+            cc_hours = cc_energy / max(1e-6, eff * self.max_charger_power)
+        else:
+            cc_hours = 0.0
+
+        cv_soc_start = max(soc, self._CC_CV_THRESHOLD)
+        if cv_soc_start < target:
+            cv_energy = (target - cv_soc_start) / 100.0 * cap
+            cv_avg_power = max(self._CV_FLOOR_KW, self.max_charger_power * 0.5)
+            cv_hours = cv_energy / max(1e-6, eff * cv_avg_power)
+        else:
+            cv_hours = 0.0
+
+        return cc_hours + cv_hours
 
     def estimate_charge_cost(self, ev):
         remaining_energy = max(
@@ -102,40 +122,44 @@ class ChargingStation:
         )
         return self.predicted_arrivals
 
+    # CC-CV 充电曲线阈值（与 target_soc 对应）
+    _CC_CV_THRESHOLD = 80.0   # 低于此 SOC 为恒流（CC）阶段
+    _CV_FLOOR_KW     = 1.0    # CV 阶段最低功率，确保充电能抵达目标 SOC
+
+    def _cc_cv_power(self, ev):
+        """
+        CC-CV 两段式充电功率（模拟电池物理特性）：
+          - CC 阶段 (SOC < 80%)：以额定功率全速充
+          - CV 阶段 (80% ≤ SOC < target)：功率线性 taper 至 CV_FLOOR_KW
+        返回值为单桩请求功率（kW），尚未考虑站级总功率约束。
+        """
+        soc = ev.soc
+        if soc < self._CC_CV_THRESHOLD:
+            return self.max_charger_power
+        cv_range = max(1.0, ev.target_soc - self._CC_CV_THRESHOLD)
+        ratio = max(0.0, (ev.target_soc - soc) / cv_range)
+        return max(self._CV_FLOOR_KW, self.max_charger_power * ratio)
+
     def optimize_power(self):
+        """
+        站级功率分配：
+          1. 每辆 EV 按 CC-CV 曲线计算各自请求功率
+          2. 若总请求超出电网上限，等比例降额（所有桩同比缩水）
+        """
         n = len(self.connected_evs)
         if n == 0:
             self.last_power_allocation = {}
             self.last_total_load = 0.0
             return {}
 
-        upper_bounds = np.array([
-            min(self.max_charger_power,
-                max(0.0, (ev.target_soc - ev.soc) / 100.0 * ev.battery_capacity_kwh) /
-                max(1e-6, ev.charge_efficiency))
-            for ev in self.connected_evs
-        ], dtype=float)
-
-        alloc = np.zeros(n, dtype=float)
-        remaining = float(self.max_grid_power)
-        active = np.ones(n, dtype=bool)
-
-        while active.any():
-            n_active = int(active.sum())
-            fair = remaining / n_active
-            capped = active & (upper_bounds <= fair)
-            if not capped.any():
-                alloc[active] = fair
-                break
-            alloc[capped] = upper_bounds[capped]
-            remaining -= float(upper_bounds[capped].sum())
-            active &= ~capped
-            if remaining <= 1e-9:
-                break
+        requested = np.array([self._cc_cv_power(ev) for ev in self.connected_evs], dtype=float)
+        total_requested = requested.sum()
+        scale = min(1.0, self.max_grid_power / max(1e-6, total_requested))
+        alloc = requested * scale
 
         allocation = {ev.id: float(alloc[i]) for i, ev in enumerate(self.connected_evs)}
         self.last_power_allocation = allocation
-        self.last_total_load = sum(allocation.values())
+        self.last_total_load = float(alloc.sum())
         return allocation
 
     def step(self, tou_multiplier=1.0, price_noise=0.0, step_duration_h=1.0):
@@ -144,6 +168,7 @@ class ChargingStation:
         while self.queue and len(self.connected_evs) < self.num_chargers:
             ev = self.queue.pop(0)
             ev.status = "CHARGING"
+            ev.charge_started_count += 1
             self.connected_evs.append(ev)
 
         allocation = self.optimize_power()

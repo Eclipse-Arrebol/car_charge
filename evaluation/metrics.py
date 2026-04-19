@@ -65,6 +65,7 @@ class UserMetrics:
         charge_hours = np.array([getattr(ev, "charge_time_h", ev.charge_steps * self.p.STEP_DURATION_H) for ev in evs], dtype=float)
         fees_paid    = np.array([ev.total_fee_paid for ev in evs], dtype=float)
         sessions     = np.array([ev.charge_sessions for ev in evs], dtype=float)
+        started      = np.array([getattr(ev, "charge_started_count", 0) for ev in evs], dtype=float)
         abandoned    = np.array([getattr(ev, "abandoned_charge_count", 0) for ev in evs], dtype=float)
 
         h = self.p.STEP_DURATION_H
@@ -118,7 +119,8 @@ class UserMetrics:
             "evs_in_line":                evs_in_line,
             "end_evs_in_line":            float(end_evs_in_line),
             # 汇总
-            "total_charge_sessions":      int(sessions.sum()),
+            "started_charge_sessions":    int(started.sum()),
+            "completed_charge_sessions":  int(sessions.sum()),
             "total_energy_charged_kwh":   float(sum(ev.total_energy_charged for ev in evs)),
             "abandoned_evs":              int(abandoned.sum()),
             "incomplete_evs":             int(incomplete_evs),
@@ -131,8 +133,8 @@ class UserMetrics:
             "wait_time_cost_per_veh", "charging_fee_per_veh",
             "total_charging_cost_per_veh", "avg_wait_time_min",
             "evs_in_line", "end_evs_in_line",
-            "total_charge_sessions", "total_energy_charged_kwh",
-            "abandoned_evs", "incomplete_evs",
+            "started_charge_sessions", "completed_charge_sessions",
+            "total_energy_charged_kwh", "abandoned_evs", "incomplete_evs",
         ]}
 
 
@@ -274,8 +276,9 @@ class Evaluator:
 
         print("\n【汇总】")
         print(f"  评估步数: {r['evaluation_steps']}  |  "
-              f"充电次数: {r['total_charge_sessions']}  |  "
+              f"开始充电次数: {r['started_charge_sessions']}  |  "
+              f"完成充电次数: {r['completed_charge_sessions']}  |  "
               f"总充电量: {r['total_energy_charged_kwh']:.1f} kWh")
-        print(f"  放弃充电车辆: {r['abandoned_evs']}  |  "
+        print(f"  放弃充电车辆(累计事件): {r['abandoned_evs']}  |  "
               f"未完成充电车辆: {r['incomplete_evs']}")
         print("=" * 62)

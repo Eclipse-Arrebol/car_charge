@@ -36,6 +36,7 @@ class EV:
         self.total_fee_paid = 0.0
         self.total_energy_charged = 0.0
         self.charge_sessions = 0
+        self.charge_started_count = 0
         self.abandoned_charge_count = 0
 
     def move(self, env, step_hours=1.0):
