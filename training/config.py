@@ -103,6 +103,16 @@ class TrainConfig:
         )
 
     @classmethod
+    def ablation(cls) -> "TrainConfig":
+        """图表示消融专用档位，保留调度压力但显著低于 medium 的训练成本。"""
+        return cls(
+            num_evs=40, episodes=30, steps_per_episode=600,
+            fed_rounds_per_episode=3, batch_size=128,
+            step_local_train_steps=1, step_train_interval=4,
+            epsilon_final=0.90,
+        )
+
+    @classmethod
     def ablation_l0(cls) -> "TrainConfig":
         return cls(
             graphml_file=_DEFAULT_L0_GRAPHML,
@@ -161,6 +171,10 @@ class EvalConfig:
     @classmethod
     def medium(cls) -> "EvalConfig":
         return cls(episodes=20, steps_per_episode=1200)
+
+    @classmethod
+    def ablation(cls) -> "EvalConfig":
+        return cls(episodes=10, steps_per_episode=600)
 
     @classmethod
     def ablation_l0(cls) -> "EvalConfig":

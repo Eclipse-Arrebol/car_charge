@@ -51,6 +51,9 @@ def cmd_train_real(args):
     if args.debug:
         cfg = _apply_train_scale(cfg, TrainConfig.debug())
         cfg.train_scale = "debug"
+    elif args.ablation:
+        cfg = _apply_train_scale(cfg, TrainConfig.ablation())
+        cfg.train_scale = "ablation"
     elif args.quick:
         cfg = _apply_train_scale(cfg, TrainConfig.quick())
         cfg.train_scale = "quick"
@@ -101,6 +104,9 @@ def cmd_evaluate(args):
     if args.debug:
         eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.debug())
         eval_cfg.eval_scale = "debug"
+    elif args.ablation:
+        eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.ablation())
+        eval_cfg.eval_scale = "ablation"
     elif args.quick:
         eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.quick())
         eval_cfg.eval_scale = "quick"
@@ -180,6 +186,7 @@ if __name__ == "__main__":
     )
     scale_group = parser.add_mutually_exclusive_group()
     scale_group.add_argument("--debug",  action="store_true", help="极小规模，约 2 分钟")
+    scale_group.add_argument("--ablation", action="store_true", help="图表示消融专用档位，兼顾压力与时长")
     scale_group.add_argument("--medium", action="store_true", help="中等规模，约 30 分钟")
     scale_group.add_argument("--quick",  action="store_true", help="快速验证，约 10 分钟")
     parser.add_argument("--dp",       action="store_true", help="启用差分隐私训练 (DP-SGD)")

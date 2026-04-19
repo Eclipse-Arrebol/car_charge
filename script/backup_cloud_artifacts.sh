@@ -7,11 +7,13 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_DIR="${ROOT_DIR}/backup_run/${TIMESTAMP}"
 
 FILES=(
-  "checkpoints/trained_federated_dqn_real.pth"
-  "evaluation/results/evaluation_report.json"
-  "results/real/training_curves.png"
-  "results/real/training_data.json"
-  "results/real/training_summary.txt"
+  "evaluation/results"
+  "results/real"
+)
+
+PATTERNS=(
+  "checkpoints/trained_federated_dqn_real*.pth"
+  "checkpoints/trained_dqn_real*.pth"
 )
 
 moved_count=0
@@ -20,7 +22,7 @@ mkdir -p "${BACKUP_DIR}"
 
 for rel_path in "${FILES[@]}"; do
   src="${ROOT_DIR}/${rel_path}"
-  if [ -f "${src}" ]; then
+  if [ -e "${src}" ]; then
     dest_dir="${BACKUP_DIR}/$(dirname "${rel_path}")"
     mkdir -p "${dest_dir}"
     mv "${src}" "${dest_dir}/"
@@ -30,6 +32,24 @@ for rel_path in "${FILES[@]}"; do
     echo "Skip:  ${rel_path} (not found)"
   fi
 done
+
+shopt -s nullglob
+for pattern in "${PATTERNS[@]}"; do
+  matches=( "${ROOT_DIR}"/${pattern} )
+  if [ ${#matches[@]} -eq 0 ]; then
+    echo "Skip:  ${pattern} (not found)"
+    continue
+  fi
+  for src in "${matches[@]}"; do
+    rel_path="${src#${ROOT_DIR}/}"
+    dest_dir="${BACKUP_DIR}/$(dirname "${rel_path}")"
+    mkdir -p "${dest_dir}"
+    mv "${src}" "${dest_dir}/"
+    echo "Moved: ${rel_path}"
+    moved_count=$((moved_count + 1))
+  done
+done
+shopt -u nullglob
 
 if [ "${moved_count}" -eq 0 ]; then
   rmdir "${BACKUP_DIR}" 2>/dev/null || true
