@@ -22,42 +22,56 @@ from matplotlib import font_manager
 
 
 def _build_font_properties():
-    windows_font_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-    windows_font_files = [
-        os.path.join(windows_font_dir, "msyh.ttc"),
-        os.path.join(windows_font_dir, "msyhbd.ttc"),
-        os.path.join(windows_font_dir, "simhei.ttf"),
-        os.path.join(windows_font_dir, "simsun.ttc"),
-    ]
+    import platform
+    import subprocess
 
-    for font_path in windows_font_files:
+    matplotlib.rcParams["axes.unicode_minus"] = False
+
+    candidate_paths = []
+
+    if platform.system() == "Windows":
+        windows_font_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        candidate_paths = [
+            os.path.join(windows_font_dir, "msyh.ttc"),
+            os.path.join(windows_font_dir, "msyhbd.ttc"),
+            os.path.join(windows_font_dir, "simhei.ttf"),
+            os.path.join(windows_font_dir, "simsun.ttc"),
+        ]
+    else:
+        # Linux/macOS：先用 fc-list 查找已安装的中文字体路径
+        linux_hardcoded = [
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+        ]
+        try:
+            fc_output = subprocess.check_output(
+                ["fc-list", ":lang=zh", "--format=%{file}\n"],
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).decode("utf-8", errors="ignore")
+            fc_paths = [p.strip() for p in fc_output.splitlines() if p.strip()]
+            candidate_paths = fc_paths + linux_hardcoded
+        except Exception:
+            candidate_paths = linux_hardcoded
+
+    # 直接用字体文件路径创建 FontProperties，绕过名称查找和缓存问题
+    for font_path in candidate_paths:
         if os.path.exists(font_path):
             try:
+                font_prop = font_manager.FontProperties(fname=font_path)
                 font_manager.fontManager.addfont(font_path)
+                font_name = font_prop.get_name()
+                matplotlib.rcParams["font.family"] = "sans-serif"
+                matplotlib.rcParams["font.sans-serif"] = [font_name, "DejaVu Sans"]
+                return font_prop, [font_name]
             except Exception:
                 pass
 
-    font_candidates = [
-        "Microsoft YaHei",
-        "SimHei",
-        "SimSun",
-        "Microsoft JhengHei",
-        "Noto Sans CJK SC",
-        "Source Han Sans SC",
-        "WenQuanYi Zen Hei",
-        "Arial Unicode MS",
-        "DejaVu Sans",
-    ]
-    installed_fonts = {font.name for font in font_manager.fontManager.ttflist}
-    available_fonts = [name for name in font_candidates if name in installed_fonts]
-    if not available_fonts:
-        available_fonts = ["DejaVu Sans"]
-
-    matplotlib.rcParams["font.family"] = "sans-serif"
-    matplotlib.rcParams["font.sans-serif"] = available_fonts
-    matplotlib.rcParams["axes.unicode_minus"] = False
-
-    return font_manager.FontProperties(family=available_fonts[0]), available_fonts
+    # 找不到任何中文字体时回退
+    return font_manager.FontProperties(family="DejaVu Sans"), ["DejaVu Sans"]
 
 
 FONT_PROP, AVAILABLE_FONTS = _build_font_properties()
