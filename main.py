@@ -8,6 +8,7 @@ EV 充电调度强化学习系统 — 统一入口
 
 import argparse
 import random
+from datetime import datetime
 
 from training.config import TrainConfig, EvalConfig
 
@@ -49,10 +50,15 @@ def cmd_train_real(args):
 
     if args.debug:
         cfg = _apply_train_scale(cfg, TrainConfig.debug())
+        cfg.train_scale = "debug"
     elif args.quick:
         cfg = _apply_train_scale(cfg, TrainConfig.quick())
+        cfg.train_scale = "quick"
     elif args.medium:
         cfg = _apply_train_scale(cfg, TrainConfig.medium())
+        cfg.train_scale = "medium"
+    else:
+        cfg.train_scale = "full"
 
     cfg.use_dp = args.dp
     cfg.dp_noise_multiplier = args.dp_sigma
@@ -79,6 +85,7 @@ def cmd_train_real(args):
         station_id_key=cfg.station_id_key,
         max_nodes=cfg.max_nodes,
         graph_group=cfg.graph_group,
+        train_scale=cfg.train_scale,
     )
 
 
@@ -93,10 +100,15 @@ def cmd_evaluate(args):
 
     if args.debug:
         eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.debug())
+        eval_cfg.eval_scale = "debug"
     elif args.quick:
         eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.quick())
+        eval_cfg.eval_scale = "quick"
     elif args.medium:
         eval_cfg = _apply_eval_scale(eval_cfg, EvalConfig.medium())
+        eval_cfg.eval_scale = "medium"
+    else:
+        eval_cfg.eval_scale = "full"
 
     # 预先生成固定种子，保证四种策略在相同 episode 上评估
     rng = random.Random(eval_cfg.base_seed)
@@ -114,6 +126,10 @@ def cmd_evaluate(args):
         num_stations=eval_cfg.num_stations,
         episode_seeds=episode_seeds,
     )
+    eval_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"evaluation/results/{eval_cfg.graph_group}/{eval_cfg.eval_scale}/{eval_timestamp}"
+    common["save_dir"] = save_dir
+    print(f"[Evaluation Results] 当前评估结果目录: {save_dir}")
 
     print("=" * 62)
     print("  【1/4】随机策略基线")

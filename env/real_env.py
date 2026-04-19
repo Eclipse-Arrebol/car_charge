@@ -39,7 +39,9 @@ class RealTrafficEnv(TrafficPowerEnv):
         graphml_file: str = None,
         offline: bool = False,
         station_node_ids: list = None,
+        respawn_after_full_charge: bool = True,
     ):
+        self.respawn_after_full_charge = respawn_after_full_charge
         if graphml_file is not None:
             graph, station_nodes, self.node_positions = load_road_network_from_file(
                 filepath=graphml_file,
@@ -80,6 +82,7 @@ class RealTrafficEnv(TrafficPowerEnv):
                 station_id=i,
                 traffic_node_id=station_nodes[i],
                 power_node_id=power_node_map[i],
+                respawn_after_full_charge=self.respawn_after_full_charge,
             )
             for i in range(num_stations)
         ]
@@ -118,6 +121,7 @@ class RealTrafficEnv(TrafficPowerEnv):
                 station_id=i,
                 traffic_node_id=self.station_node_ids[i],
                 power_node_id=power_node_map[i],
+                respawn_after_full_charge=self.respawn_after_full_charge,
             )
             for i in range(self.num_stations)
         ]

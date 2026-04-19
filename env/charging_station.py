@@ -4,13 +4,15 @@ import random
 
 class ChargingStation:
     def __init__(self, station_id, traffic_node_id, power_node_id,
-                 num_chargers=4, max_charger_power=20.0, max_grid_power=50.0):
+                 num_chargers=4, max_charger_power=20.0, max_grid_power=50.0,
+                 respawn_after_full_charge=True):
         self.id = station_id
         self.traffic_node_id = traffic_node_id
         self.power_node_id = power_node_id
         self.num_chargers = num_chargers
         self.max_charger_power = max_charger_power
         self.max_grid_power = max_grid_power
+        self.respawn_after_full_charge = respawn_after_full_charge
         self.max_queue_len = 20
         self.max_wait_time_h = 4.0
 
@@ -163,7 +165,8 @@ class ChargingStation:
                 ev.low_soc_triggered = False
                 ev.charge_decision_pending = False
                 ev.remaining_replans = 1
-                ev.soc = random.uniform(20.0, 50.0)
+                if self.respawn_after_full_charge:
+                    ev.soc = random.uniform(20.0, 50.0)
                 finished.append(ev)
 
         for ev in finished:

@@ -60,6 +60,7 @@ def _build_eval_env(eval_cfg, seed):
             max_nodes=eval_cfg.max_nodes,
             seed=seed,
             station_node_ids=station_node_ids,
+            respawn_after_full_charge=getattr(eval_cfg, "respawn_after_full_charge", False),
         )
     return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
 
@@ -94,6 +95,7 @@ def evaluate(
     strategy: BaseStrategy,
     eval_cfg,
     episode_seeds: list,
+    save_dir: str = None,
 ) -> dict:
     evaluator = Evaluator()
     all_reports = []
@@ -130,7 +132,7 @@ def evaluate(
         evaluator._print_report(avg_report)
         report = avg_report
 
-    save_dir = os.path.join(project_root, "evaluation", "results")
+    save_dir = save_dir or os.path.join(project_root, "evaluation", "results")
     os.makedirs(save_dir, exist_ok=True)
     save_path = os.path.join(save_dir, f"evaluation_report_{strategy.name()}.json")
     with open(save_path, "w", encoding="utf-8") as f:
@@ -142,7 +144,7 @@ def evaluate(
 
 def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_greedy=False,
                    use_real_map=True, model_file=None, num_evs=100, num_stations=8,
-                   episode_seeds=None):
+                   episode_seeds=None, save_dir=None):
     """
     运行评估。
 
@@ -182,7 +184,7 @@ def run_evaluation(episodes=50, steps_per_episode=1000, use_random=False, use_gr
         episode_seeds = [rng.randint(0, 10000) for _ in range(episodes)]
     elif len(episode_seeds) != episodes:
         raise ValueError(f"episode_seeds length {len(episode_seeds)} != episodes {episodes}")
-    return evaluate(strategy, eval_cfg, episode_seeds)
+    return evaluate(strategy, eval_cfg, episode_seeds, save_dir=save_dir)
 
 
 def _compare_table(reports: dict):

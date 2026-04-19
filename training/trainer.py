@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from datetime import datetime
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -42,7 +43,8 @@ class FederatedTrainer:
     def __init__(self, cfg: TrainConfig):
         self.cfg = cfg
         self.fed_local_steps = getattr(cfg, "fed_local_steps", FED_LOCAL_STEPS)
-        self.viz = TrainingVisualizer(save_dir="results/real")
+        self.result_dir = self._build_result_dir()
+        self.viz = TrainingVisualizer(save_dir=self.result_dir)
         self.client_seeds = [42, 123]
 
         self._print_mode_banner()
@@ -83,6 +85,17 @@ class FederatedTrainer:
             self.fed_server.register_client(client)
 
         self.fed_server.distribute_global_model()
+
+    def _build_result_dir(self):
+        graph_group = getattr(self.cfg, "graph_group", "l0")
+        train_scale = getattr(self.cfg, "train_scale", "full")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result_dir = os.path.join(
+            project_root, "results", "real", graph_group, train_scale, timestamp
+        )
+        os.makedirs(result_dir, exist_ok=True)
+        print(f"[Results] 当前训练结果目录: {result_dir}")
+        return result_dir
 
     def _print_mode_banner(self):
         graphml_file = getattr(self.cfg, "graphml_file", LOCAL_GRAPHML)
@@ -419,6 +432,7 @@ def run_training_real(
     station_id_key="l0_station_nodes",
     max_nodes=MAX_NODES,
     graph_group="l0",
+    train_scale="full",
 ):
     cfg = TrainConfig(
         num_evs=num_evs,
@@ -443,6 +457,7 @@ def run_training_real(
         station_config_file=station_config_file or getattr(TrainConfig(), "station_config_file", None),
         station_id_key=station_id_key,
         graph_group=graph_group,
+        train_scale=train_scale,
         checkpoint_interval=checkpoint_interval,
     )
     FederatedTrainer(cfg).train()

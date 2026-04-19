@@ -62,6 +62,8 @@ class TrainConfig:
     station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
     station_id_key: str = "l0_station_nodes"
     graph_group: str = "l0"
+    train_scale: str = "full"
+    respawn_after_full_charge: bool = True
 
     # ── 检查点 ────────────────────────────────────────────────────────
     checkpoint_interval: int = 20   # 每隔多少 episode 保存一次检查点
@@ -141,6 +143,8 @@ class EvalConfig:
     station_config_file: str = field(default_factory=lambda: _DEFAULT_STATION_CONFIG)
     station_id_key: str = "l0_station_nodes"
     graph_group: str = "l0"
+    eval_scale: str = "full"
+    respawn_after_full_charge: bool = False
 
     # ------------------------------------------------------------------
     # 工厂方法

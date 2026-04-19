@@ -15,9 +15,23 @@ import json
 import os
 
 # 设置中文字体支持
+_WINDOWS_FONT_FILES = [
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "msyh.ttc"),
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "msyhbd.ttc"),
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "simhei.ttf"),
+    os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "simsun.ttc"),
+]
+for font_path in _WINDOWS_FONT_FILES:
+    if os.path.exists(font_path):
+        try:
+            font_manager.fontManager.addfont(font_path)
+        except Exception:
+            pass
+
 _FONT_CANDIDATES = [
     'SimHei',
     'Microsoft YaHei',
+    'SimSun',
     'Microsoft JhengHei',
     'Noto Sans CJK SC',
     'Source Han Sans SC',
@@ -30,7 +44,9 @@ _AVAILABLE_FONTS = [name for name in _FONT_CANDIDATES if name in _INSTALLED_FONT
 if not _AVAILABLE_FONTS:
     _AVAILABLE_FONTS = ['DejaVu Sans']
 
+matplotlib.rcParams['font.family'] = 'sans-serif'
 matplotlib.rcParams['font.sans-serif'] = _AVAILABLE_FONTS
+matplotlib.rcParams['axes.unicode_minus'] = False
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 

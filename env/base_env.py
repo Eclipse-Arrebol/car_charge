@@ -13,15 +13,18 @@ NODE_FEATURE_DIM = 18
 
 
 class TrafficPowerEnv:
-    def __init__(self, num_evs=10):
+    def __init__(self, num_evs=10, respawn_after_full_charge=True):
         self.traffic_graph = nx.grid_2d_graph(3, 3)
         self.traffic_graph = nx.convert_node_labels_to_integers(self.traffic_graph)
         self.num_evs = num_evs
+        self.respawn_after_full_charge = respawn_after_full_charge
         self.charge_trigger_soc = 30.0
 
         self.stations = [
-            ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A"),
-            ChargingStation(station_id=1, traffic_node_id=8, power_node_id="Grid_B")
+            ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A",
+                            respawn_after_full_charge=self.respawn_after_full_charge),
+            ChargingStation(station_id=1, traffic_node_id=8, power_node_id="Grid_B",
+                            respawn_after_full_charge=self.respawn_after_full_charge)
         ]
 
         self.evs = []
@@ -49,8 +52,10 @@ class TrafficPowerEnv:
 
     def reset(self):
         self.stations = [
-            ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A"),
-            ChargingStation(station_id=1, traffic_node_id=8, power_node_id="Grid_B")
+            ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A",
+                            respawn_after_full_charge=self.respawn_after_full_charge),
+            ChargingStation(station_id=1, traffic_node_id=8, power_node_id="Grid_B",
+                            respawn_after_full_charge=self.respawn_after_full_charge)
         ]
         self.evs = []
         for i in range(self.num_evs):
