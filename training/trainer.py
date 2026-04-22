@@ -1,7 +1,10 @@
 import os
 import sys
 import time
+import random
 from datetime import datetime
+import numpy as np
+import torch
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -37,15 +40,19 @@ CHECKPOINT_INTERVAL = 20
 MIXED_REWARD_SCALE = 50.0
 MIXED_REWARD_MIN = -20.0
 MIXED_REWARD_MAX = 5.0
+DEFAULT_REWARD_MODE = "baseline"
+DEFAULT_CHEAT_GRID_COST_SCALE = 1.0
 
 
 class FederatedTrainer:
     def __init__(self, cfg: TrainConfig):
         self.cfg = cfg
         self.fed_local_steps = getattr(cfg, "fed_local_steps", FED_LOCAL_STEPS)
+        self._set_global_seed()
         self.result_dir = self._build_result_dir()
         self.viz = TrainingVisualizer(save_dir=self.result_dir)
-        self.client_seeds = [42, 123]
+        base_seed = int(getattr(cfg, "base_seed", 42))
+        self.client_seeds = [base_seed, base_seed + 1]
 
         self._print_mode_banner()
 
@@ -86,7 +93,55 @@ class FederatedTrainer:
 
         self.fed_server.distribute_global_model()
 
+    def _set_global_seed(self):
+        seed = int(getattr(self.cfg, "base_seed", 42))
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    def _build_training_reward(self, env, action, metrics, info):
+        reward_mode = getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE)
+
+        if reward_mode == "baseline":
+            per_ev_r = -(metrics["queue_time_h"] + metrics["trip_time_h"])
+            mixed_r = per_ev_r / 2.0
+            return max(-1.0, min(0.0, mixed_r))
+
+        if reward_mode == "cheat":
+            station = env.stations[action]
+            true_voltage_pu = info.get("bus_voltages", {}).get(station.power_node_id)
+            true_grid_cost = info.get("objective_terms", {}).get("grid_cost")
+
+            user_raw = metrics["queue_time_h"] + metrics["trip_time_h"]
+            voltage_excursion = 0.0
+            if true_voltage_pu is not None:
+                voltage_excursion = max(0.0, 0.95 - float(true_voltage_pu))
+
+            grid_cost_scale = max(
+                1e-6,
+                float(getattr(self.cfg, "cheat_grid_cost_scale", DEFAULT_CHEAT_GRID_COST_SCALE)),
+            )
+            grid_cost_norm = 0.0 if true_grid_cost is None else float(true_grid_cost) / grid_cost_scale
+            user_norm = user_raw / 2.0
+            grid_norm = voltage_excursion + 0.1 * grid_cost_norm
+
+            cheat_reward = -(0.15 * user_norm + 0.85 * grid_norm)
+            return max(-3.0, min(0.0, cheat_reward))
+
+        raise ValueError(f"Unsupported reward_mode: {reward_mode}")
+
     def _build_result_dir(self):
+        explicit_output_dir = getattr(self.cfg, "output_dir", None)
+        if explicit_output_dir:
+            result_dir = explicit_output_dir
+            if not os.path.isabs(result_dir):
+                result_dir = os.path.join(project_root, result_dir)
+            os.makedirs(result_dir, exist_ok=True)
+            print(f"[Results] å½“å‰è®­ç»ƒç»“æžœç›®å½•: {result_dir}")
+            return result_dir
+
         graph_group = getattr(self.cfg, "graph_group", "l0")
         train_scale = getattr(self.cfg, "train_scale", "full")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -198,7 +253,7 @@ class FederatedTrainer:
                     stats["episode_trip_h_sum"] += metrics["trip_time_h"]
                     stats["episode_service_h_sum"] += metrics["service_time_h"]
 
-                    ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask))
+                    ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask, metrics))
                     pending_counts[action] += 1
                 stats["episode_action_build_s"] += time.perf_counter() - t0
 
@@ -207,9 +262,12 @@ class FederatedTrainer:
                 stats["episode_env_step_s"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
-                for ev, ev_state, act, per_ev_r, mask in ev_dispatch:
-                    mixed_r = per_ev_r / 2.0
-                    mixed_r = max(-1.0, min(0.0, mixed_r))
+                for ev, ev_state, act, per_ev_r, mask, metrics in ev_dispatch:
+                    if getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE) == "baseline":
+                        mixed_r = per_ev_r / 2.0
+                        mixed_r = max(-1.0, min(0.0, mixed_r))
+                    else:
+                        mixed_r = self._build_training_reward(env, act, metrics, info)
                     next_ev_state = env.get_graph_state_for_ev(ev)
                     client.store_transition(
                         ev_state, act, mixed_r, next_ev_state, action_mask=mask
@@ -353,10 +411,13 @@ class FederatedTrainer:
 
         ckpt_dir = os.path.join(project_root, "checkpoints")
         os.makedirs(ckpt_dir, exist_ok=True)
-        model_tag = getattr(self.cfg, "graph_group", "l0")
-        ckpt_path = os.path.join(
-            ckpt_dir, f"trained_federated_dqn_real_{model_tag}_ep{episode_idx + 1}.pth"
-        )
+        checkpoint_basename = getattr(self.cfg, "checkpoint_basename", None)
+        if checkpoint_basename:
+            ckpt_name = f"{checkpoint_basename}_ep{episode_idx + 1}.pth"
+        else:
+            model_tag = getattr(self.cfg, "graph_group", "l0")
+            ckpt_name = f"trained_federated_dqn_real_{model_tag}_ep{episode_idx + 1}.pth"
+        ckpt_path = os.path.join(ckpt_dir, ckpt_name)
         self.fed_server.save_global_model(path=ckpt_path)
         print(f"[Checkpoint] saved: {ckpt_path}")
 
@@ -392,10 +453,13 @@ class FederatedTrainer:
         self.viz.save_data()
         self.viz.generate_summary_report()
 
-        model_tag = getattr(self.cfg, "graph_group", "l0")
-        save_path = os.path.join(
-            project_root, "checkpoints", f"trained_federated_dqn_real_{model_tag}.pth"
-        )
+        checkpoint_basename = getattr(self.cfg, "checkpoint_basename", None)
+        if checkpoint_basename:
+            save_name = f"{checkpoint_basename}.pth"
+        else:
+            model_tag = getattr(self.cfg, "graph_group", "l0")
+            save_name = f"trained_federated_dqn_real_{model_tag}.pth"
+        save_path = os.path.join(project_root, "checkpoints", save_name)
         self.fed_server.save_global_model(path=save_path)
         print(f"\n联邦训练完成！全局模型已保存: {save_path}")
 
@@ -427,12 +491,17 @@ def run_training_real(
     mixed_reward_scale=MIXED_REWARD_SCALE,
     mixed_reward_min=MIXED_REWARD_MIN,
     mixed_reward_max=MIXED_REWARD_MAX,
+    reward_mode=DEFAULT_REWARD_MODE,
+    cheat_grid_cost_scale=DEFAULT_CHEAT_GRID_COST_SCALE,
     graphml_file=LOCAL_GRAPHML,
     station_config_file=None,
     station_id_key="l0_station_nodes",
     max_nodes=MAX_NODES,
     graph_group="l0",
     train_scale="full",
+    base_seed=42,
+    output_dir=None,
+    checkpoint_basename=None,
 ):
     cfg = TrainConfig(
         num_evs=num_evs,
@@ -447,6 +516,8 @@ def run_training_real(
         mixed_reward_scale=mixed_reward_scale,
         mixed_reward_min=mixed_reward_min,
         mixed_reward_max=mixed_reward_max,
+        reward_mode=reward_mode,
+        cheat_grid_cost_scale=cheat_grid_cost_scale,
         proximal_mu=proximal_mu,
         use_dp=use_dp,
         dp_noise_multiplier=dp_noise_multiplier,
@@ -459,6 +530,9 @@ def run_training_real(
         graph_group=graph_group,
         train_scale=train_scale,
         checkpoint_interval=checkpoint_interval,
+        base_seed=base_seed,
+        output_dir=output_dir,
+        checkpoint_basename=checkpoint_basename,
     )
     FederatedTrainer(cfg).train()
 

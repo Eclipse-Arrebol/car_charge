@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass, field
 import os
+from typing import Optional
 
 # 项目根目录（相对于本文件向上两级）
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,6 +49,8 @@ class TrainConfig:
     mixed_reward_scale: float = 50.0
     mixed_reward_min: float = -20.0
     mixed_reward_max: float = 5.0
+    reward_mode: str = "baseline"
+    cheat_grid_cost_scale: float = 1.0
 
     # ── 联邦 / 差分隐私 ───────────────────────────────────────────────
     proximal_mu: float = 0.01       # FedProx 近端正则系数
@@ -64,6 +67,9 @@ class TrainConfig:
     graph_group: str = "l0"
     train_scale: str = "full"
     respawn_after_full_charge: bool = True
+    base_seed: int = 42
+    output_dir: Optional[str] = None
+    checkpoint_basename: Optional[str] = None
 
     # ── 检查点 ────────────────────────────────────────────────────────
     checkpoint_interval: int = 20   # 每隔多少 episode 保存一次检查点
@@ -97,7 +103,7 @@ class TrainConfig:
         """中等规模，约 30 分钟，用于快速迭代实验。"""
         return cls(
             num_evs=60, episodes=100, steps_per_episode=1200,
-            fed_rounds_per_episode=5, batch_size=256,
+            fed_rounds_per_episode=5, batch_size=128,
             step_local_train_steps=1, step_train_interval=4,
             epsilon_final=0.90,
         )

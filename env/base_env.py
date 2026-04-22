@@ -343,6 +343,33 @@ class TrafficPowerEnv:
         travel_energy_cost = trip_dist_km * ev.drive_kwh_per_km * station.current_price
         generalized_cost = ev.time_value * (trip_time_h + service_time_h) + charge_cost + travel_energy_cost
 
+        estimated_station_load_kw_after = None
+        estimated_grid_load_ratio_after = None
+        estimated_voltage_pu_after = None
+
+        try:
+            ev_power_kw = float(station._cc_cv_power(ev))
+            estimated_station_load_kw_after = min(
+                float(station.last_total_load) + ev_power_kw,
+                float(station.max_grid_power),
+            )
+            estimated_grid_load_ratio_after = (
+                estimated_station_load_kw_after / max(1.0, float(station.max_grid_power))
+            )
+
+            bus = getattr(station, "power_node_id", None)
+            line = getattr(self.power_grid, "lines", {}).get(bus) if bus is not None else None
+            v_nominal_kv = getattr(self.power_grid, "v_nominal_kv", None)
+            if line is not None and v_nominal_kv is not None:
+                r_ohm = float(line["r_ohm"])
+                v2 = float(v_nominal_kv) ** 2
+                delta_v = estimated_station_load_kw_after * r_ohm / (v2 * 1000.0)
+                estimated_voltage_pu_after = 1.0 - delta_v
+        except Exception:
+            estimated_station_load_kw_after = None
+            estimated_grid_load_ratio_after = None
+            estimated_voltage_pu_after = None
+
         return {
             "trip_time_h": trip_time_h,
             "trip_dist_km": trip_dist_km,
@@ -354,6 +381,9 @@ class TrafficPowerEnv:
             "generalized_cost": generalized_cost,
             "price": station.current_price,
             "grid_load_ratio": station.last_total_load / max(1.0, station.max_grid_power),
+            "estimated_station_load_kw_after": estimated_station_load_kw_after,
+            "estimated_grid_load_ratio_after": estimated_grid_load_ratio_after,
+            "estimated_voltage_pu_after": estimated_voltage_pu_after,
         }
 
     def estimate_action_metrics(self, ev, station_id, pending_counts=None):
