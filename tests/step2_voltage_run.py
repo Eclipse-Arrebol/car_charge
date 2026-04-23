@@ -35,6 +35,7 @@ EXPERIMENT_SEED = 0
 GRID_COST_SCALE = 300.0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
+CHEAT_60_RUN_NAME = "step1_cheat_seed0_60ep"
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -64,6 +65,32 @@ def _build_train_cfg():
     cfg.train_scale = "step2"
     cfg.output_dir = os.path.join("runs", "step2_voltage_seed0")
     cfg.checkpoint_basename = "step2_voltage_seed0"
+    return cfg
+
+
+def _build_cheat_60_cfg():
+    cfg = TrainConfig.ablation_l0()
+    scale = TrainConfig.ablation()
+    for attr in [
+        "num_evs",
+        "episodes",
+        "steps_per_episode",
+        "fed_rounds_per_episode",
+        "batch_size",
+        "step_local_train_steps",
+        "step_train_interval",
+        "fed_local_steps",
+        "epsilon_final",
+        "checkpoint_interval",
+    ]:
+        setattr(cfg, attr, getattr(scale, attr))
+    cfg.reward_mode = "cheat"
+    cfg.episodes = 60
+    cfg.cheat_grid_cost_scale = GRID_COST_SCALE
+    cfg.base_seed = EXPERIMENT_SEED
+    cfg.train_scale = "step1"
+    cfg.output_dir = os.path.join("runs", CHEAT_60_RUN_NAME)
+    cfg.checkpoint_basename = CHEAT_60_RUN_NAME
     return cfg
 
 
@@ -236,6 +263,66 @@ def train_voltage():
     )
 
 
+def _print_training_return_curve(run_name):
+    path = os.path.join(RUN_ROOT, run_name, "training_data.json")
+    if not os.path.exists(path):
+        print(f"[Warning] training_data.json not found: {path}")
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    episodes = data.get("episodes", [])
+    rewards = data.get("rewards", [])
+    print(f"\nTraining return curve: {run_name}")
+    print(f"{'episode':>7} {'return':>14}")
+    print("-" * 24)
+    for ep, reward in zip(episodes, rewards):
+        print(f"{int(ep):>7} {float(reward):>14.6f}")
+
+    if len(rewards) > 30:
+        first_30 = rewards[:30]
+        after_30 = rewards[30:]
+        print(
+            f"\n[Return Summary] ep1-30 avg={mean(first_30):.6f}, "
+            f"ep31-60 avg={mean(after_30):.6f}, "
+            f"ep60={float(rewards[-1]):.6f}"
+        )
+
+
+def train_cheat_60ep():
+    cfg = _build_cheat_60_cfg()
+    print("\n=== Train cheat 60ep ===")
+    run_training_real(
+        num_evs=cfg.num_evs,
+        episodes=cfg.episodes,
+        steps_per_episode=cfg.steps_per_episode,
+        fed_rounds_per_episode=cfg.fed_rounds_per_episode,
+        batch_size=cfg.batch_size,
+        step_local_train_steps=cfg.step_local_train_steps,
+        step_train_interval=cfg.step_train_interval,
+        proximal_mu=cfg.proximal_mu,
+        use_dp=cfg.use_dp,
+        dp_noise_multiplier=cfg.dp_noise_multiplier,
+        dp_clip_C=cfg.dp_clip_C,
+        epsilon_final=cfg.epsilon_final,
+        checkpoint_interval=cfg.checkpoint_interval,
+        mixed_reward_scale=cfg.mixed_reward_scale,
+        mixed_reward_min=cfg.mixed_reward_min,
+        mixed_reward_max=cfg.mixed_reward_max,
+        reward_mode=cfg.reward_mode,
+        cheat_grid_cost_scale=cfg.cheat_grid_cost_scale,
+        graphml_file=cfg.graphml_file,
+        station_config_file=cfg.station_config_file,
+        station_id_key=cfg.station_id_key,
+        max_nodes=cfg.max_nodes,
+        graph_group=cfg.graph_group,
+        train_scale=cfg.train_scale,
+        base_seed=cfg.base_seed,
+        output_dir=cfg.output_dir,
+        checkpoint_basename=cfg.checkpoint_basename,
+    )
+    _print_training_return_curve(CHEAT_60_RUN_NAME)
+
+
 def _evaluate_checkpoint(model_basename: str, eval_seed: int):
     eval_cfg = _build_eval_cfg(eval_seed)
     strategy = FedDQNStrategy(
@@ -296,7 +383,7 @@ def _ceiling_capture(base, cheat, voltage):
     return (base - voltage) / denom * 100.0
 
 
-def _print_three_way_table(reports):
+def _print_three_way_table(reports, middle_label="cheat"):
     rows = [
         "queue_time_h_mean",
         "trip_time_h_mean",
@@ -307,16 +394,16 @@ def _print_three_way_table(reports):
         "total_line_losses_kwh",
     ]
     print("\n================================================================================================")
-    print("Step 2 Compare: baseline vs cheat vs voltage")
+    print(f"Compare: baseline vs {middle_label} vs voltage")
     print("================================================================================================")
     print(
-        f"{'metric':<36} {'baseline':>11} {'cheat':>11} {'voltage':>11} "
-        f"{'voltage vs base':>16} {'voltage vs cheat':>17}"
+        f"{'metric':<36} {'baseline':>11} {middle_label:>11} {'voltage':>11} "
+        f"{'voltage vs base':>16} {f'voltage vs {middle_label}':>17}"
     )
     print("-" * 96)
     for key in rows:
         base = float(reports["baseline"][key])
-        cheat = float(reports["cheat"][key])
+        cheat = float(reports[middle_label][key])
         voltage = float(reports["voltage"][key])
         print(
             f"{key:<36} {base:>11.4f} {cheat:>11.4f} {voltage:>11.4f} "
@@ -378,12 +465,40 @@ def run_eval():
     print(f"\n[Saved] compare json: {path}")
 
 
+def run_cheat_60_eval():
+    eval_seed = EXPERIMENT_SEED
+    reports = {
+        "baseline": _evaluate_checkpoint("step1_baseline_seed0", eval_seed),
+        "cheat60": _evaluate_checkpoint(CHEAT_60_RUN_NAME, eval_seed),
+        "voltage": _evaluate_checkpoint("step2_voltage_seed0", eval_seed),
+    }
+    _print_three_way_table(reports, middle_label="cheat60")
+
+    os.makedirs(RUN_ROOT, exist_ok=True)
+    path = os.path.join(RUN_ROOT, "step1_cheat_60ep_compare.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "seed": EXPERIMENT_SEED,
+                "eval_num_evs": TRAIN_NUM_EVS,
+                "cheat_grid_cost_scale": GRID_COST_SCALE,
+                "reports": reports,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+    print(f"\n[Saved] compare json: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Step 2 voltage reward experiment runner")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--dry-run", action="store_true", help="Run Part 2 random-policy signal check.")
     group.add_argument("--train-voltage", action="store_true", help="Run Part 3 voltage training.")
     group.add_argument("--eval", action="store_true", help="Run Part 4 three-way evaluation.")
+    group.add_argument("--train-cheat-60ep", action="store_true", help="Train cheat reward for 60 episodes.")
+    group.add_argument("--eval-cheat-60ep", action="store_true", help="Evaluate baseline/cheat60/voltage.")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -392,6 +507,10 @@ def main():
         train_voltage()
     elif args.eval:
         run_eval()
+    elif args.train_cheat_60ep:
+        train_cheat_60ep()
+    elif args.eval_cheat_60ep:
+        run_cheat_60_eval()
 
 
 if __name__ == "__main__":
