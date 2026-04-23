@@ -19,6 +19,7 @@ from evaluation.strategies import FedDQNStrategy
 from training.config import EvalConfig, TrainConfig
 from training.trainer import (
     GRID_WEIGHT,
+    GRID_NORM_SCALE,
     USER_WEIGHT,
     VOLTAGE_THRESHOLD,
     run_training_real,
@@ -131,7 +132,8 @@ def run_voltage_dry_run():
     print("Step 2 Part 2: voltage reward dry-run with random policy")
     print(
         f"episodes={DRY_RUN_EPISODES}, steps_per_episode={cfg.steps_per_episode}, "
-        f"num_evs={cfg.num_evs}, threshold={VOLTAGE_THRESHOLD}"
+        f"num_evs={cfg.num_evs}, threshold={VOLTAGE_THRESHOLD}, "
+        f"grid_norm_scale={GRID_NORM_SCALE}"
     )
 
     for ep_idx, ep_seed in enumerate(episode_seeds, start=1):
@@ -162,7 +164,8 @@ def run_voltage_dry_run():
                 user_norm = (metrics["queue_time_h"] + metrics["trip_time_h"]) / 2.0
                 grid_norm = 0.0
                 if est_voltage is not None:
-                    grid_norm = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+                    est_voltage_excursion = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+                    grid_norm = est_voltage_excursion * GRID_NORM_SCALE
 
                 user_norms.append(user_norm)
                 grid_norms.append(grid_norm)
@@ -176,7 +179,7 @@ def run_voltage_dry_run():
 
     print("\nReward component distributions:")
     user_summary = _print_summary("user_norm", user_norms)
-    grid_summary = _print_summary("grid_norm", grid_norms)
+    grid_summary = _print_summary("grid_norm_scaled", grid_norms)
     user_weighted_p90 = USER_WEIGHT * user_summary["p90"]
     grid_weighted_p90 = GRID_WEIGHT * grid_summary["p90"]
     print(
@@ -184,15 +187,19 @@ def run_voltage_dry_run():
         f"{GRID_WEIGHT:.1f}*grid_norm={grid_weighted_p90:.6f}"
     )
 
-    if grid_summary["p90"] >= 0.01:
-        print("[Decision] grid_norm p90 >= 0.01, signal is sufficient for Part 3.")
-    elif grid_summary["p90"] < 0.005:
+    larger = max(user_weighted_p90, grid_weighted_p90)
+    smaller = min(user_weighted_p90, grid_weighted_p90)
+    ratio = larger / max(smaller, 1e-9)
+    print(f"weighted p90 ratio={ratio:.3f}x")
+
+    if ratio <= 2.0:
+        print("[Decision] weighted p90 values are aligned within 2x; proceed to Part 3.")
+    elif ratio > 3.0:
         print(
-            "[Decision] grid_norm p90 < 0.005, stop before Part 3; "
-            "consider raising threshold from 0.95 to 0.97."
+            "[Decision] weighted p90 ratio > 3x; stop before Part 3 and tune GRID_NORM_SCALE."
         )
     else:
-        print("[Decision] grid_norm p90 is borderline; please confirm before Part 3.")
+        print("[Decision] weighted p90 ratio is between 2x and 3x; please confirm before Part 3.")
 
 
 def train_voltage():
@@ -359,6 +366,7 @@ def run_eval():
                     "user_weight": USER_WEIGHT,
                     "grid_weight": GRID_WEIGHT,
                     "voltage_threshold": VOLTAGE_THRESHOLD,
+                    "grid_norm_scale": GRID_NORM_SCALE,
                 },
                 "reports": reports,
                 "voltage_to_cheat_ceiling_capture_pct": capture,

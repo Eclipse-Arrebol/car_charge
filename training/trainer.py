@@ -45,6 +45,7 @@ DEFAULT_CHEAT_GRID_COST_SCALE = 1.0
 USER_WEIGHT = 0.3
 GRID_WEIGHT = 0.7
 VOLTAGE_THRESHOLD = 0.95
+GRID_NORM_SCALE = 5.0
 
 
 class FederatedTrainer:
@@ -173,7 +174,8 @@ class FederatedTrainer:
                     "weighted_sum": -clipped,
                 }
 
-            grid_norm = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+            est_voltage_excursion = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+            grid_norm = est_voltage_excursion * GRID_NORM_SCALE
             weighted_sum = USER_WEIGHT * user_norm + GRID_WEIGHT * grid_norm
             per_ev_r = -weighted_sum
             clipped = max(-3.0, min(0.0, per_ev_r))
