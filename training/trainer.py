@@ -42,6 +42,9 @@ MIXED_REWARD_MIN = -20.0
 MIXED_REWARD_MAX = 5.0
 DEFAULT_REWARD_MODE = "baseline"
 DEFAULT_CHEAT_GRID_COST_SCALE = 1.0
+USER_WEIGHT = 0.3
+GRID_WEIGHT = 0.7
+VOLTAGE_THRESHOLD = 0.95
 
 
 class FederatedTrainer:
@@ -104,7 +107,7 @@ class FederatedTrainer:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-    def _build_training_reward_components(self, env, action, metrics, info):
+    def _build_training_reward_components(self, env, action, metrics, info, ev=None):
         reward_mode = getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE)
 
         if reward_mode == "baseline":
@@ -148,10 +151,46 @@ class FederatedTrainer:
                 "weighted_sum": weighted_sum,
             }
 
+        if reward_mode == "voltage":
+            station = env.stations[action]
+            user_norm = (metrics["queue_time_h"] + metrics["trip_time_h"]) / 2.0
+            pred = {}
+            if ev is not None:
+                try:
+                    pred = env._estimate_ev_station_metrics(ev, station)
+                except Exception:
+                    pred = {}
+            est_voltage = pred.get("estimated_voltage_pu_after", None)
+
+            if est_voltage is None:
+                per_ev_r = -user_norm
+                clipped = max(-1.0, min(0.0, per_ev_r))
+                return {
+                    "reward": clipped,
+                    "user_norm": user_norm,
+                    "voltage_excursion": 0.0,
+                    "grid_cost_norm": 0.0,
+                    "weighted_sum": -clipped,
+                }
+
+            grid_norm = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+            weighted_sum = USER_WEIGHT * user_norm + GRID_WEIGHT * grid_norm
+            per_ev_r = -weighted_sum
+            clipped = max(-3.0, min(0.0, per_ev_r))
+            return {
+                "reward": clipped,
+                "user_norm": user_norm,
+                "voltage_excursion": grid_norm,
+                "grid_cost_norm": 0.0,
+                "weighted_sum": weighted_sum,
+            }
+
         raise ValueError(f"Unsupported reward_mode: {reward_mode}")
 
-    def _build_training_reward(self, env, action, metrics, info):
-        return self._build_training_reward_components(env, action, metrics, info)["reward"]
+    def _build_training_reward(self, env, action, metrics, info, ev=None):
+        return self._build_training_reward_components(
+            env, action, metrics, info, ev=ev
+        )["reward"]
 
     def _should_print_reward_debug(self, episode_idx, step_idx):
         return (
@@ -319,7 +358,7 @@ class FederatedTrainer:
                         mixed_r = max(-1.0, min(0.0, mixed_r))
                     else:
                         components = self._build_training_reward_components(
-                            env, act, metrics, info
+                            env, act, metrics, info, ev=ev
                         )
                         mixed_r = components["reward"]
                         if self._should_print_reward_debug(episode_idx, step_idx):
