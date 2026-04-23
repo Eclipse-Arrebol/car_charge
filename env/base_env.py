@@ -346,6 +346,9 @@ class TrafficPowerEnv:
         estimated_station_load_kw_after = None
         estimated_grid_load_ratio_after = None
         estimated_voltage_pu_after = None
+        current_voltage_pu = None
+        estimated_voltage_delta_pu = None
+        thevenin_r_ohm = None
 
         try:
             ev_power_kw = float(station._cc_cv_power(ev))
@@ -357,18 +360,43 @@ class TrafficPowerEnv:
                 estimated_station_load_kw_after / max(1.0, float(station.max_grid_power))
             )
 
-            bus = getattr(station, "power_node_id", None)
-            line = getattr(self.power_grid, "lines", {}).get(bus) if bus is not None else None
             v_nominal_kv = getattr(self.power_grid, "v_nominal_kv", None)
-            if line is not None and v_nominal_kv is not None:
-                r_ohm = float(line["r_ohm"])
-                v2 = float(v_nominal_kv) ** 2
-                delta_v = estimated_station_load_kw_after * r_ohm / (v2 * 1000.0)
-                estimated_voltage_pu_after = 1.0 - delta_v
+            power_bus_idx = getattr(station, "power_bus_idx", None)
+            has_thevenin = (
+                power_bus_idx is not None
+                and hasattr(self.power_grid, "get_bus_thevenin_resistance")
+                and hasattr(self.power_grid, "get_last_bus_voltage")
+                and v_nominal_kv is not None
+            )
+            if has_thevenin:
+                thevenin_r_ohm = float(
+                    self.power_grid.get_bus_thevenin_resistance(power_bus_idx)
+                )
+                current_voltage_pu = float(
+                    self.power_grid.get_last_bus_voltage(power_bus_idx)
+                )
+                estimated_voltage_delta_pu = (
+                    (ev_power_kw / 1000.0)
+                    * thevenin_r_ohm
+                    / (float(v_nominal_kv) ** 2)
+                )
+                estimated_voltage_pu_after = current_voltage_pu - estimated_voltage_delta_pu
+            else:
+                bus = getattr(station, "power_node_id", None)
+                line = getattr(self.power_grid, "lines", {}).get(bus) if bus is not None else None
+                if line is not None and v_nominal_kv is not None:
+                    r_ohm = float(line["r_ohm"])
+                    v2 = float(v_nominal_kv) ** 2
+                    estimated_voltage_delta_pu = ev_power_kw * r_ohm / (v2 * 1000.0)
+                    current_voltage_pu = self.power_grid.bus_voltages.get(bus, 1.0)
+                    estimated_voltage_pu_after = current_voltage_pu - estimated_voltage_delta_pu
         except Exception:
             estimated_station_load_kw_after = None
             estimated_grid_load_ratio_after = None
             estimated_voltage_pu_after = None
+            current_voltage_pu = None
+            estimated_voltage_delta_pu = None
+            thevenin_r_ohm = None
 
         return {
             "trip_time_h": trip_time_h,
@@ -384,6 +412,9 @@ class TrafficPowerEnv:
             "estimated_station_load_kw_after": estimated_station_load_kw_after,
             "estimated_grid_load_ratio_after": estimated_grid_load_ratio_after,
             "estimated_voltage_pu_after": estimated_voltage_pu_after,
+            "current_voltage_pu": current_voltage_pu,
+            "estimated_voltage_delta_pu": estimated_voltage_delta_pu,
+            "thevenin_r_ohm": thevenin_r_ohm,
         }
 
     def estimate_action_metrics(self, ev, station_id, pending_counts=None):
@@ -582,6 +613,14 @@ class TrafficPowerEnv:
             total_realized_power += load
 
         self.power_grid.run_power_flow(grid_loads)
+        voltage_excursion = sum(
+            max(0.0, self.power_grid.v_min - float(v_pu))
+            for v_pu in self.power_grid.bus_voltages.values()
+        )
+        min_voltage_bus, min_voltage_pu = min(
+            self.power_grid.bus_voltages.items(),
+            key=lambda item: item[1],
+        )
 
         user_cost = sum(m["generalized_cost"] for m in decision_metrics.values())
         queue_cost = sum(m["queue_time_h"] for m in decision_metrics.values())
@@ -605,6 +644,12 @@ class TrafficPowerEnv:
             "bus_voltages": dict(self.power_grid.bus_voltages),
             "line_losses": self.power_grid.total_loss,
             "voltage_violations": len(self.power_grid.voltage_violations),
+            "voltage_excursion": voltage_excursion,
+            "min_voltage_bus": min_voltage_bus,
+            "min_voltage_pu": min_voltage_pu,
+            "runpp_call_count": getattr(self.power_grid, "runpp_call_count", 0),
+            "runpp_total_time_s": getattr(self.power_grid, "runpp_total_time_s", 0.0),
+            "runpp_last_time_s": getattr(self.power_grid, "last_runpp_time_s", 0.0),
             "tou_multiplier": self.tou_multiplier,
             "price_noise": self.price_noise,
             "decision_costs": decision_metrics,

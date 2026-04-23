@@ -124,14 +124,16 @@ class FederatedTrainer:
             }
 
         if reward_mode == "cheat":
-            station = env.stations[action]
-            true_voltage_pu = info.get("bus_voltages", {}).get(station.power_node_id)
             true_grid_cost = info.get("objective_terms", {}).get("grid_cost")
 
             user_raw = metrics["queue_time_h"] + metrics["trip_time_h"]
-            voltage_excursion = 0.0
-            if true_voltage_pu is not None:
-                voltage_excursion = max(0.0, 0.95 - float(true_voltage_pu))
+            bus_voltages = info.get("bus_voltages", {})
+            true_voltage_excursion_mean = 0.0
+            if bus_voltages:
+                true_voltage_excursion_mean = sum(
+                    max(0.0, VOLTAGE_THRESHOLD - float(v_pu))
+                    for v_pu in bus_voltages.values()
+                ) / len(bus_voltages)
 
             grid_cost_scale = max(
                 1e-6,
@@ -139,7 +141,7 @@ class FederatedTrainer:
             )
             grid_cost_norm = 0.0 if true_grid_cost is None else float(true_grid_cost) / grid_cost_scale
             user_norm = user_raw / 2.0
-            grid_norm = voltage_excursion + 0.1 * grid_cost_norm
+            grid_norm = true_voltage_excursion_mean * GRID_NORM_SCALE
 
             weighted_sum = 0.15 * user_norm + 0.85 * grid_norm
             cheat_reward = -weighted_sum
@@ -147,7 +149,7 @@ class FederatedTrainer:
             return {
                 "reward": clipped,
                 "user_norm": user_norm,
-                "voltage_excursion": voltage_excursion,
+                "voltage_excursion": grid_norm,
                 "grid_cost_norm": grid_cost_norm,
                 "weighted_sum": weighted_sum,
             }

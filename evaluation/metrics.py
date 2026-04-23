@@ -171,8 +171,9 @@ class GridMetrics:
         self._step_count += 1
 
         # 累计电压偏移: Σ |V_bus - 1.0|  (所有母线)
+        v_min = getattr(power_grid, "v_min", 0.95)
         for bus, v_pu in power_grid.bus_voltages.items():
-            self._accum_voltage_deviation += abs(v_pu - 1.0)
+            self._accum_voltage_deviation += max(0.0, v_min - float(v_pu))
 
         # 配电网购电成本: 总功率(kWh) × 分时电价系数 × 基准电价
         realized = info.get("realized_power", 0.0)

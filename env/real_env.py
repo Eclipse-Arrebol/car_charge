@@ -7,7 +7,8 @@ from torch_geometric.data import Data
 from env.base_env import TrafficPowerEnv
 from env.entities import EV
 from env.charging_station import ChargingStation
-from env.power_grid import PowerGrid, get_tou_multiplier, _FlexiblePowerGrid
+from env.power_grid import get_tou_multiplier
+from env.power_grid_pp import IEEE33_STATION_BUSES, PPPowerGrid33
 from env.osm_loader import load_road_network, load_road_network_by_point, load_road_network_from_file
 
 
@@ -76,18 +77,13 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.station_node_ids = station_nodes
         self.num_stations = num_stations
 
-        power_node_map = {i: f"Grid_{chr(65 + i)}" for i in range(num_stations)}
-        self.stations = [
-            ChargingStation(
-                station_id=i,
-                traffic_node_id=station_nodes[i],
-                power_node_id=power_node_map[i],
-                respawn_after_full_charge=self.respawn_after_full_charge,
-            )
-            for i in range(num_stations)
-        ]
-
-        self.power_grid = _FlexiblePowerGrid(num_stations)
+        self.power_grid = PPPowerGrid33(
+            station_bus_map={
+                i: IEEE33_STATION_BUSES[i]
+                for i in range(num_stations)
+            }
+        )
+        self.stations = self._build_charging_stations(station_nodes)
 
         non_station = [n for n in graph.nodes() if n not in station_nodes]
         self.evs = []
@@ -113,19 +109,13 @@ class RealTrafficEnv(TrafficPowerEnv):
               f"station_nodes={station_nodes}, EVs={num_evs})")
 
     def reset(self):
-        power_node_map = {
-            i: f"Grid_{chr(65 + i)}" for i in range(self.num_stations)
-        }
-        self.stations = [
-            ChargingStation(
-                station_id=i,
-                traffic_node_id=self.station_node_ids[i],
-                power_node_id=power_node_map[i],
-                respawn_after_full_charge=self.respawn_after_full_charge,
-            )
-            for i in range(self.num_stations)
-        ]
-        self.power_grid = _FlexiblePowerGrid(self.num_stations)
+        self.power_grid = PPPowerGrid33(
+            station_bus_map={
+                i: IEEE33_STATION_BUSES[i]
+                for i in range(self.num_stations)
+            }
+        )
+        self.stations = self._build_charging_stations(self.station_node_ids)
 
         non_station = [n for n in self.traffic_graph.nodes()
                        if n not in self.station_node_ids]
@@ -144,3 +134,16 @@ class RealTrafficEnv(TrafficPowerEnv):
         self.price_noise = 0.0
         self.prev_total_load = 0.0
         return self.get_graph_state()
+
+    def _build_charging_stations(self, station_nodes):
+        stations = []
+        for i in range(self.num_stations):
+            station = ChargingStation(
+                station_id=i,
+                traffic_node_id=station_nodes[i],
+                power_node_id=self.power_grid.get_station_power_node(i),
+                respawn_after_full_charge=self.respawn_after_full_charge,
+            )
+            station.power_bus_idx = IEEE33_STATION_BUSES[i]
+            stations.append(station)
+        return stations
