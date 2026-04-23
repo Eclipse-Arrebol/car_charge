@@ -84,7 +84,7 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
     eval_cfg = EvalConfig.ablation_l0()
     eval_cfg.episodes = EVAL_EPISODES
     eval_cfg.steps_per_episode = EVAL_STEPS
-    eval_cfg.num_evs = 100
+    eval_cfg.num_evs = TRAIN_NUM_EVS
     eval_cfg.base_seed = eval_seed
 
     strategy = FedDQNStrategy(
@@ -163,12 +163,24 @@ def _print_compare_table(baseline, cheat):
         print(f"{label:<34} {b:>12.4f} {c:>12.4f} {pct:>15.2f}%")
 
 
-def _save_compare_json(baseline, cheat):
+def _print_abandoned_sanity(baseline, cheat):
+    baseline_abandoned = float(baseline["abandoned_evs"])
+    cheat_abandoned = float(cheat["abandoned_evs"])
+    print(
+        f"\n[Sanity] abandoned_evs: "
+        f"baseline={baseline_abandoned:.4f}, cheat={cheat_abandoned:.4f}"
+    )
+    if baseline_abandoned > 20 or cheat_abandoned > 20:
+        print("[Warning] eval regime may still be overloaded: abandoned_evs > 20")
+
+
+def _save_compare_json(baseline, cheat, filename="step1_compare_seed0.json"):
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step1_compare_seed0.json")
+    path = os.path.join(RUN_ROOT, filename)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({
             "grid_cost_scale": GRID_COST_SCALE,
+            "eval_num_evs": TRAIN_NUM_EVS,
             "seed": EXPERIMENT_SEED,
             "baseline": baseline,
             "cheat": cheat,
@@ -210,12 +222,13 @@ def train_one(reward_mode: str, debug_short: bool = False):
     )
 
 
-def run_eval():
+def run_eval(compare_filename="step1_compare_seed0.json"):
     eval_seed = 0
     baseline_report = _evaluate_checkpoint("step1_baseline_seed0", eval_seed)
     cheat_report = _evaluate_checkpoint("step1_cheat_seed0", eval_seed)
     _print_compare_table(baseline_report, cheat_report)
-    _save_compare_json(baseline_report, cheat_report)
+    _print_abandoned_sanity(baseline_report, cheat_report)
+    _save_compare_json(baseline_report, cheat_report, filename=compare_filename)
 
 
 def main():
@@ -223,7 +236,6 @@ def main():
     parser.add_argument(
         "--mode",
         choices=["baseline", "cheat", "eval"],
-        required=True,
         help="baseline: 只跑 baseline 训练; cheat: 只跑 cheat 训练; eval: 读取两份 checkpoint 做评估对比",
     )
     parser.add_argument(
@@ -231,10 +243,20 @@ def main():
         action="store_true",
         help="Run 1 episode x 10 steps into debug-only outputs without overwriting formal results.",
     )
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Only evaluate existing step1 checkpoints and save eval40 comparison.",
+    )
     args = parser.parse_args()
 
     os.makedirs(RUN_ROOT, exist_ok=True)
 
+    if args.eval_only:
+        run_eval(compare_filename="step1_compare_seed0_eval40.json")
+        return
+    if args.mode is None:
+        parser.error("either --eval-only or --mode is required")
     if args.mode == "baseline":
         train_one("baseline", debug_short=args.debug_short)
         return
