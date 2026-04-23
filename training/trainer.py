@@ -53,6 +53,9 @@ class FederatedTrainer:
         self.viz = TrainingVisualizer(save_dir=self.result_dir)
         base_seed = int(getattr(cfg, "base_seed", 42))
         self.client_seeds = [base_seed, base_seed + 1]
+        self.reward_debug = os.environ.get("FEDGRL_REWARD_DEBUG", "0") == "1"
+        self.reward_debug_episodes = int(os.environ.get("FEDGRL_REWARD_DEBUG_EPISODES", "3"))
+        self.reward_debug_steps = int(os.environ.get("FEDGRL_REWARD_DEBUG_STEPS", "10"))
 
         self._print_mode_banner()
 
@@ -101,13 +104,20 @@ class FederatedTrainer:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-    def _build_training_reward(self, env, action, metrics, info):
+    def _build_training_reward_components(self, env, action, metrics, info):
         reward_mode = getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE)
 
         if reward_mode == "baseline":
             per_ev_r = -(metrics["queue_time_h"] + metrics["trip_time_h"])
             mixed_r = per_ev_r / 2.0
-            return max(-1.0, min(0.0, mixed_r))
+            clipped = max(-1.0, min(0.0, mixed_r))
+            return {
+                "reward": clipped,
+                "user_norm": -mixed_r,
+                "voltage_excursion": 0.0,
+                "grid_cost_norm": 0.0,
+                "weighted_sum": -clipped,
+            }
 
         if reward_mode == "cheat":
             station = env.stations[action]
@@ -127,10 +137,50 @@ class FederatedTrainer:
             user_norm = user_raw / 2.0
             grid_norm = voltage_excursion + 0.1 * grid_cost_norm
 
-            cheat_reward = -(0.15 * user_norm + 0.85 * grid_norm)
-            return max(-3.0, min(0.0, cheat_reward))
+            weighted_sum = 0.15 * user_norm + 0.85 * grid_norm
+            cheat_reward = -weighted_sum
+            clipped = max(-3.0, min(0.0, cheat_reward))
+            return {
+                "reward": clipped,
+                "user_norm": user_norm,
+                "voltage_excursion": voltage_excursion,
+                "grid_cost_norm": grid_cost_norm,
+                "weighted_sum": weighted_sum,
+            }
 
         raise ValueError(f"Unsupported reward_mode: {reward_mode}")
+
+    def _build_training_reward(self, env, action, metrics, info):
+        return self._build_training_reward_components(env, action, metrics, info)["reward"]
+
+    def _should_print_reward_debug(self, episode_idx, step_idx):
+        return (
+            self.reward_debug
+            and getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE) == "cheat"
+            and episode_idx < self.reward_debug_episodes
+            and step_idx < self.reward_debug_steps
+        )
+
+    @staticmethod
+    def _mean_component(rows, key):
+        return sum(row[key] for row in rows) / max(1, len(rows))
+
+    def _print_reward_debug_step(self, episode_idx, step_idx, rows):
+        if not rows:
+            print(
+                f"[RewardDebug] ep={episode_idx + 1} step={step_idx + 1} "
+                "decisions=0"
+            )
+            return
+        print(
+            f"[RewardDebug] ep={episode_idx + 1} step={step_idx + 1} "
+            f"decisions={len(rows)} "
+            f"user_norm={self._mean_component(rows, 'user_norm'):.6f} "
+            f"voltage_excursion={self._mean_component(rows, 'voltage_excursion'):.6f} "
+            f"grid_cost_norm={self._mean_component(rows, 'grid_cost_norm'):.6f} "
+            f"weighted_sum={self._mean_component(rows, 'weighted_sum'):.6f} "
+            f"reward={self._mean_component(rows, 'reward'):.6f}"
+        )
 
     def _build_result_dir(self):
         explicit_output_dir = getattr(self.cfg, "output_dir", None)
@@ -229,6 +279,7 @@ class FederatedTrainer:
 
         for step_idx in range(self.cfg.steps_per_episode):
             total_urgent = 0
+            reward_debug_rows = []
 
             for client, env in zip(self.fed_server.clients, self.client_envs):
                 t0 = time.perf_counter()
@@ -267,7 +318,12 @@ class FederatedTrainer:
                         mixed_r = per_ev_r / 2.0
                         mixed_r = max(-1.0, min(0.0, mixed_r))
                     else:
-                        mixed_r = self._build_training_reward(env, act, metrics, info)
+                        components = self._build_training_reward_components(
+                            env, act, metrics, info
+                        )
+                        mixed_r = components["reward"]
+                        if self._should_print_reward_debug(episode_idx, step_idx):
+                            reward_debug_rows.append(components)
                     next_ev_state = env.get_graph_state_for_ev(ev)
                     client.store_transition(
                         ev_state, act, mixed_r, next_ev_state, action_mask=mask
@@ -295,6 +351,9 @@ class FederatedTrainer:
                 )
                 stats["overload_count"] += int(info.get("voltage_violations", 0))
                 total_urgent += len(urgent_evs)
+
+            if self._should_print_reward_debug(episode_idx, step_idx):
+                self._print_reward_debug_step(episode_idx, step_idx, reward_debug_rows)
 
             _print_training_progress(
                 episode=episode_idx,

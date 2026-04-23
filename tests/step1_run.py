@@ -31,7 +31,7 @@ RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 
 
-def _build_train_cfg(reward_mode: str):
+def _build_train_cfg(reward_mode: str, debug_short: bool = False):
     cfg = TrainConfig.ablation_l0()
     scale = TrainConfig.ablation()
     for attr in [
@@ -51,8 +51,14 @@ def _build_train_cfg(reward_mode: str):
     cfg.cheat_grid_cost_scale = GRID_COST_SCALE
     cfg.base_seed = EXPERIMENT_SEED
     cfg.train_scale = "step1"
-    cfg.output_dir = os.path.join("runs", f"step1_{reward_mode}_seed0")
-    cfg.checkpoint_basename = f"step1_{reward_mode}_seed0"
+    run_name = f"step1_{reward_mode}_seed0"
+    if debug_short:
+        cfg.episodes = 1
+        cfg.steps_per_episode = 10
+        cfg.checkpoint_interval = 0
+        run_name = f"step1_{reward_mode}_debug_seed0"
+    cfg.output_dir = os.path.join("runs", run_name)
+    cfg.checkpoint_basename = run_name
     return cfg
 
 
@@ -170,8 +176,8 @@ def _save_compare_json(baseline, cheat):
     print(f"\n[Saved] compare json: {path}")
 
 
-def train_one(reward_mode: str):
-    cfg = _build_train_cfg(reward_mode)
+def train_one(reward_mode: str, debug_short: bool = False):
+    cfg = _build_train_cfg(reward_mode, debug_short=debug_short)
     print(f"\n=== Train {reward_mode} ===")
     run_training_real(
         num_evs=cfg.num_evs,
@@ -220,15 +226,20 @@ def main():
         required=True,
         help="baseline: 只跑 baseline 训练; cheat: 只跑 cheat 训练; eval: 读取两份 checkpoint 做评估对比",
     )
+    parser.add_argument(
+        "--debug-short",
+        action="store_true",
+        help="Run 1 episode x 10 steps into debug-only outputs without overwriting formal results.",
+    )
     args = parser.parse_args()
 
     os.makedirs(RUN_ROOT, exist_ok=True)
 
     if args.mode == "baseline":
-        train_one("baseline")
+        train_one("baseline", debug_short=args.debug_short)
         return
     if args.mode == "cheat":
-        train_one("cheat")
+        train_one("cheat", debug_short=args.debug_short)
         return
     if args.mode == "eval":
         run_eval()

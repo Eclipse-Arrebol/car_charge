@@ -1,0 +1,19 @@
+{
+    "travel_time_cost_per_veh": 6.5498,
+    "charge_time_cost_per_veh": 240.46,
+    "wait_time_cost_per_veh": 116.94,
+    "charging_fee_per_veh": 103.7768,
+    "total_charging_cost_per_veh": 467.7266,
+    "avg_wait_time_min": 327.5393,
+    "evs_in_line": 7.796,
+    "end_evs_in_line": 0.0,
+    "started_charge_sessions": 200.0,
+    "completed_charge_sessions": 200.0,
+    "total_energy_charged_kwh": 8736.8835,
+    "abandoned_evs": 45.4,
+    "incomplete_evs": 0.0,
+    "distribution_network_cost_cny": 3302.644,
+    "accumulated_voltage_excursion_pu": 71.0007,
+    "total_line_losses_kwh": 3.0762,
+    "evaluation_steps": 300.0
+}
