@@ -15,8 +15,10 @@ class BaseStrategy(ABC):
 
 
 class RandomStrategy(BaseStrategy):
-    def select_action(self, env, ev, pending_counts) -> int:
-        action_mask = env.get_action_mask(ev)
+    def select_action(self, env, ev, pending_counts=None) -> int:
+        if pending_counts is None:
+            pending_counts = {}
+        action_mask = env.get_action_mask(ev, pending_counts=pending_counts)
         valid = [i for i in range(len(env.stations)) if action_mask[0, i].item()]
         return rng.choice(valid) if valid else 0
 
@@ -25,8 +27,10 @@ class RandomStrategy(BaseStrategy):
 
 
 class GreedyStrategy(BaseStrategy):
-    def select_action(self, env, ev, pending_counts) -> int:
-        action_mask = env.get_action_mask(ev)
+    def select_action(self, env, ev, pending_counts=None) -> int:
+        if pending_counts is None:
+            pending_counts = {}
+        action_mask = env.get_action_mask(ev, pending_counts=pending_counts)
         best_action = None
         best_score = float("inf")
         for i, station in enumerate(env.stations):
@@ -60,9 +64,11 @@ class DQNStrategy(BaseStrategy):
         self.agent.load_model(model_path)
         self.agent.epsilon = 0.02
 
-    def select_action(self, env, ev, pending_counts) -> int:
+    def select_action(self, env, ev, pending_counts=None) -> int:
+        if pending_counts is None:
+            pending_counts = {}
         ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-        action_mask = env.get_action_mask(ev)
+        action_mask = env.get_action_mask(ev, pending_counts=pending_counts)
         return self.agent.select_action(ev_state, action_mask=action_mask)
 
     def name(self) -> str:

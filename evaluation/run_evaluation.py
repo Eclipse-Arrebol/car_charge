@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import random as rng
+import torch
 
 # 确保项目根目录在 Python 搜索路径中
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,7 +54,7 @@ def _build_eval_env(eval_cfg, seed):
         station_key = getattr(eval_cfg, "station_id_key", None)
         if station_cfg and station_key:
             station_node_ids = resolve_station_nodes(station_cfg, station_key)
-        return RealTrafficEnv(
+        env = RealTrafficEnv(
             graphml_file=graphml_path,
             num_stations=eval_cfg.num_stations,
             num_evs=eval_cfg.num_evs,
@@ -62,6 +63,9 @@ def _build_eval_env(eval_cfg, seed):
             station_node_ids=station_node_ids,
             respawn_after_full_charge=getattr(eval_cfg, "respawn_after_full_charge", False),
         )
+        env.enable_queue_timeout_mask = True
+        env.queue_timeout_mask_safety_margin_h = 0.5
+        return env
     return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
 
 
@@ -111,8 +115,15 @@ def evaluate(
 
             for ev in urgent_evs:
                 action = strategy.select_action(env, ev, pending_counts)
-                actions[ev.id] = action
-                pending_counts[action] += 1
+                if isinstance(action, torch.Tensor):
+                    action_int = int(action.item())
+                else:
+                    action_int = int(action)
+
+                actions[ev.id] = action_int
+                if 0 <= action_int < len(env.stations):
+                    selected_station = env.stations[action_int]
+                    pending_counts[selected_station.id] = pending_counts.get(selected_station.id, 0) + 1
 
             _, _, _, info = env.step(actions)
             evaluator.update(info, env.power_grid, env.stations)

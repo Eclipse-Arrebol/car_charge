@@ -109,6 +109,7 @@ class RealTrafficEnv(TrafficPowerEnv):
               f"station_nodes={station_nodes}, EVs={num_evs})")
 
     def reset(self):
+        self._reset_mask_stats_and_print()
         self.power_grid = PPPowerGrid33(
             station_bus_map={
                 i: IEEE33_STATION_BUSES[i]

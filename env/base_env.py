@@ -50,7 +50,29 @@ class TrafficPowerEnv:
         self.edge_index = self._build_edge_index()
         self._path_cache_step: dict = {}
 
+    def _reset_mask_stats_and_print(self):
+        if hasattr(self, "_mask_stats") and self._mask_stats.get("total", 0) > 0:
+            total = self._mask_stats["total"]
+            all_masked = self._mask_stats["all_masked_before_fallback"]
+            partial = self._mask_stats["partial_masked"]
+            fallback = self._mask_stats["fallback"]
+            print(
+                f"[mask_stats] total={total} "
+                f"all_masked_before_fallback={all_masked} "
+                f"partial_masked={partial} "
+                f"fallback={fallback} "
+                f"all_masked_ratio={all_masked / max(total, 1):.4f} "
+                f"partial_masked_ratio={partial / max(total, 1):.4f}"
+            )
+        self._mask_stats = {
+            "total": 0,
+            "all_masked_before_fallback": 0,
+            "partial_masked": 0,
+            "fallback": 0,
+        }
+
     def reset(self):
+        self._reset_mask_stats_and_print()
         self.stations = [
             ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A",
                             respawn_after_full_charge=self.respawn_after_full_charge),
@@ -123,6 +145,8 @@ class TrafficPowerEnv:
         return best_station_id, best_metrics
 
     def _should_replan_in_transit(self, ev, target_station):
+        return False   # 禁用 replan 支线,避免绕过 pending_counts 的 mask
+        # 以下原代码保留不删
         if ev.remaining_replans <= 0:
             return False
         if ev.remaining_edge_time_h > 1e-9:
@@ -479,9 +503,10 @@ class TrafficPowerEnv:
                     data.x[station.traffic_node_id, 2] += pc
         return data
 
-    def get_action_mask(self, ev):
+    def get_action_mask(self, ev, pending_counts=None):
         num_actions = len(self.stations)
         mask = torch.ones(1, num_actions, dtype=torch.bool)
+        enable_timeout_mask = getattr(self, "enable_queue_timeout_mask", False)
 
         for i, station in enumerate(self.stations):
             if not nx.has_path(self.traffic_graph, ev.curr_node, station.traffic_node_id):
@@ -494,9 +519,40 @@ class TrafficPowerEnv:
                 if ev.soc < soc_needed or metrics["trip_time_h"] >= 24.0:
                     mask[0, i] = False
                     continue
+                if enable_timeout_mask:
+                    # 预测排队超时过滤：防止 policy 选爆队站导致 abandoned
+                    incoming = 0 if pending_counts is None else pending_counts.get(station.id, 0)
+                    est_queue_h = station.estimate_queue_wait_hours(incoming_count=incoming)
+                    est_total_h = metrics["trip_time_h"] + est_queue_h
+                    safety_margin_h = getattr(self, "queue_timeout_mask_safety_margin_h", 0.5)
+                    max_wait_time_h = getattr(station, "max_wait_time_h", 4.0)
+
+                    if est_total_h >= max_wait_time_h - safety_margin_h:
+                        mask[0, i] = False
+                        continue
             except nx.NetworkXNoPath:
                 mask[0, i] = False
                 continue
+
+        # 调试用统计，后续可删
+        if not hasattr(self, "_mask_stats"):
+            self._mask_stats = {
+                "total": 0,
+                "all_masked_before_fallback": 0,
+                "partial_masked": 0,
+                "fallback": 0,
+            }
+
+        self._mask_stats["total"] += 1
+
+        valid_count = int(mask.sum().item())
+        num_actions = len(self.stations)
+
+        if valid_count == 0:
+            self._mask_stats["all_masked_before_fallback"] += 1
+            self._mask_stats["fallback"] += 1
+        elif valid_count < num_actions:
+            self._mask_stats["partial_masked"] += 1
 
         if not mask.any():
             mask.fill_(True)

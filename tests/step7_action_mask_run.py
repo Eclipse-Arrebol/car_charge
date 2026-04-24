@@ -35,6 +35,7 @@ BASELINE_CHECKPOINT = "step5_baseline_seed0"
 CHEAT_CHECKPOINT = "step5_cheat_seed0"
 OLD_VOLTAGE_CHECKPOINT = "step6_voltage_seed0"
 NEW_VOLTAGE_CHECKPOINT = "step6_voltage_penalty5_seed0"
+MASK_CHECKPOINT = "step7_action_mask_seed0"
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -66,11 +67,11 @@ def _build_train_cfg():
     cfg.voltage_user_weight = 0.3
     cfg.voltage_grid_weight = 0.7
     cfg.voltage_grid_norm_scale = 5.0
-    cfg.voltage_abandon_penalty = 5.0
+    cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step6_penalty"
-    cfg.output_dir = os.path.join("runs", NEW_VOLTAGE_CHECKPOINT)
-    cfg.checkpoint_basename = NEW_VOLTAGE_CHECKPOINT
+    cfg.train_scale = "step7_action_mask"
+    cfg.output_dir = os.path.join("runs", MASK_CHECKPOINT)
+    cfg.checkpoint_basename = MASK_CHECKPOINT
     return cfg
 
 
@@ -109,7 +110,7 @@ def _count_eval_voltage_violations(bus_voltages):
 
 def train_voltage_penalty():
     cfg = _build_train_cfg()
-    print("\n=== Train voltage_penalty5 ===")
+    print("\n=== Train voltage_action_mask ===")
     run_training_real(
         num_evs=cfg.num_evs,
         episodes=cfg.episodes,
@@ -203,6 +204,7 @@ def run_eval():
         "cheat": _evaluate_checkpoint(CHEAT_CHECKPOINT, eval_seed),
         "voltage": _evaluate_checkpoint(OLD_VOLTAGE_CHECKPOINT, eval_seed),
         "voltage_penalty5": _evaluate_checkpoint(NEW_VOLTAGE_CHECKPOINT, eval_seed),
+        "voltage_mask": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
     }
 
     rows = [
@@ -214,25 +216,26 @@ def run_eval():
         "distribution_network_cost_cny",
     ]
     print("\n================================================================================================================")
-    print("Compare: baseline vs cheat vs voltage vs voltage_penalty5")
+    print("Compare: baseline vs cheat vs voltage vs voltage_penalty5 vs voltage_mask")
     print("================================================================================================================")
     print(
-        f"{'metric':<34} {'baseline':>11} {'cheat':>11} {'voltage':>11} {'penalty5':>11} "
-        f"{'penalty5 vs base':>17} {'penalty5 vs voltage':>20}"
+        f"{'metric':<34} {'baseline':>11} {'cheat':>11} {'voltage':>11} {'penalty5':>11} {'mask':>11} "
+        f"{'mask vs base':>14} {'mask vs penalty5':>18}"
     )
-    print("-" * 128)
+    print("-" * 146)
     for key in rows:
         base = float(reports["baseline"][key])
         cheat = float(reports["cheat"][key])
         voltage = float(reports["voltage"][key])
         penalty = float(reports["voltage_penalty5"][key])
+        mask = float(reports["voltage_mask"][key])
         print(
-            f"{key:<34} {base:>11.4f} {cheat:>11.4f} {voltage:>11.4f} {penalty:>11.4f} "
-            f"{_pct_change(base, penalty):>16.2f}% {_pct_change(voltage, penalty):>19.2f}%"
+            f"{key:<34} {base:>11.4f} {cheat:>11.4f} {voltage:>11.4f} {penalty:>11.4f} {mask:>11.4f} "
+            f"{_pct_change(base, mask):>13.2f}% {_pct_change(penalty, mask):>17.2f}%"
         )
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step6_compare_with_penalty.json")
+    path = os.path.join(RUN_ROOT, "step7_compare_with_action_mask.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -244,7 +247,9 @@ def run_eval():
                     "user_weight": 0.3,
                     "grid_weight": 0.7,
                     "grid_norm_scale": 5.0,
-                    "abandon_penalty": 5.0,
+                    "abandon_penalty": 0.0,
+                    "queue_timeout_mask": True,
+                    "queue_timeout_mask_safety_margin_h": 0.5,
                 },
                 "reports": reports,
             },
@@ -256,7 +261,7 @@ def run_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Step 6 voltage abandon-penalty runner")
+    parser = argparse.ArgumentParser(description="Step 7 voltage action-mask runner")
     parser.add_argument("--mode", choices=["train", "eval"], required=True)
     args = parser.parse_args()
 

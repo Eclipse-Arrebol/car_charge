@@ -360,25 +360,31 @@ class FederatedTrainer:
                 t0 = time.perf_counter()
                 for ev in urgent_evs:
                     ev_state = env.get_graph_state_for_ev(ev, pending_counts)
-                    action_mask = env.get_action_mask(ev)
+                    action_mask = env.get_action_mask(ev, pending_counts=pending_counts)
                     action = client.select_action(ev_state, action_mask=action_mask)
-                    actions[ev.id] = action
+                    if isinstance(action, torch.Tensor):
+                        action_int = int(action.item())
+                    else:
+                        action_int = int(action)
+                    actions[ev.id] = action_int
 
-                    metrics = env.estimate_action_metrics(ev, action, pending_counts)
+                    metrics = env.estimate_action_metrics(ev, action_int, pending_counts)
                     per_ev_r = -(metrics["queue_time_h"] + metrics["trip_time_h"])
 
                     stats["episode_queue_h_sum"] += metrics["queue_time_h"]
                     stats["episode_trip_h_sum"] += metrics["trip_time_h"]
                     stats["episode_service_h_sum"] += metrics["service_time_h"]
 
-                    ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask, metrics))
+                    ev_dispatch.append((ev, ev_state, action_int, per_ev_r, action_mask, metrics))
                     ev._decision_state = ev_state
                     ev._decision_snap = {
-                        "action": action,
+                        "action": action_int,
                         "action_mask": action_mask,
                         "metrics": metrics,
                     }
-                    pending_counts[action] += 1
+                    if 0 <= action_int < len(env.stations):
+                        selected_station = env.stations[action_int]
+                        pending_counts[selected_station.id] = pending_counts.get(selected_station.id, 0) + 1
                 stats["episode_action_build_s"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
