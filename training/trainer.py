@@ -45,7 +45,8 @@ DEFAULT_CHEAT_GRID_COST_SCALE = 1.0
 USER_WEIGHT = 0.3
 GRID_WEIGHT = 0.7
 VOLTAGE_THRESHOLD = 0.95
-GRID_NORM_SCALE = 5.0
+CHEAT_GRID_NORM_SCALE = 5.0
+DEFAULT_VOLTAGE_GRID_NORM_SCALE = 1.0
 
 
 class FederatedTrainer:
@@ -141,7 +142,7 @@ class FederatedTrainer:
             )
             grid_cost_norm = 0.0 if true_grid_cost is None else float(true_grid_cost) / grid_cost_scale
             user_norm = user_raw / 2.0
-            grid_norm = true_voltage_excursion_mean * GRID_NORM_SCALE
+            grid_norm = true_voltage_excursion_mean * CHEAT_GRID_NORM_SCALE
 
             weighted_sum = 0.15 * user_norm + 0.85 * grid_norm
             cheat_reward = -weighted_sum
@@ -177,14 +178,17 @@ class FederatedTrainer:
                 }
 
             est_voltage_excursion = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
-            grid_norm = est_voltage_excursion * GRID_NORM_SCALE
+            voltage_grid_norm_scale = float(
+                getattr(self.cfg, "voltage_grid_norm_scale", DEFAULT_VOLTAGE_GRID_NORM_SCALE)
+            )
+            grid_norm = est_voltage_excursion * voltage_grid_norm_scale
             weighted_sum = USER_WEIGHT * user_norm + GRID_WEIGHT * grid_norm
             per_ev_r = -weighted_sum
             clipped = max(-3.0, min(0.0, per_ev_r))
             return {
                 "reward": clipped,
                 "user_norm": user_norm,
-                "voltage_excursion": grid_norm,
+            "voltage_excursion": grid_norm,
                 "grid_cost_norm": 0.0,
                 "weighted_sum": weighted_sum,
             }
@@ -595,6 +599,7 @@ def run_training_real(
     mixed_reward_max=MIXED_REWARD_MAX,
     reward_mode=DEFAULT_REWARD_MODE,
     cheat_grid_cost_scale=DEFAULT_CHEAT_GRID_COST_SCALE,
+    voltage_grid_norm_scale=DEFAULT_VOLTAGE_GRID_NORM_SCALE,
     graphml_file=LOCAL_GRAPHML,
     station_config_file=None,
     station_id_key="l0_station_nodes",
@@ -620,6 +625,7 @@ def run_training_real(
         mixed_reward_max=mixed_reward_max,
         reward_mode=reward_mode,
         cheat_grid_cost_scale=cheat_grid_cost_scale,
+        voltage_grid_norm_scale=voltage_grid_norm_scale,
         proximal_mu=proximal_mu,
         use_dp=use_dp,
         dp_noise_multiplier=dp_noise_multiplier,

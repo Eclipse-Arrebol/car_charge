@@ -51,6 +51,7 @@ class TrainConfig:
     mixed_reward_max: float = 5.0
     reward_mode: str = "baseline"
     cheat_grid_cost_scale: float = 1.0
+    voltage_grid_norm_scale: float = 1.0
 
     # ── 联邦 / 差分隐私 ───────────────────────────────────────────────
     proximal_mu: float = 0.01       # FedProx 近端正则系数

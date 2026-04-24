@@ -17,7 +17,12 @@ from env.real_env import RealTrafficEnv
 from evaluation.metrics import Evaluator
 from evaluation.strategies import FedDQNStrategy
 from training.config import EvalConfig, TrainConfig
-from training.trainer import CHEAT_GRID_NORM_SCALE, run_training_real
+from training.trainer import (
+    GRID_WEIGHT,
+    USER_WEIGHT,
+    VOLTAGE_THRESHOLD,
+    run_training_real,
+)
 
 
 DRY_RUN_EPISODES = 3
@@ -28,12 +33,13 @@ EVAL_EPISODES = 10
 EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 GRID_COST_SCALE = 300.0
-USER_WEIGHT = 0.15
-GRID_WEIGHT = 0.85
-VOLTAGE_THRESHOLD = 0.95
 EVAL_VOLTAGE_THRESHOLD = 0.92
+VOLTAGE_GRID_NORM_SCALE = 5.0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
+BASELINE_CHECKPOINT = "step5_baseline_seed0"
+CHEAT_CHECKPOINT = "step5_cheat_seed0"
+VOLTAGE_CHECKPOINT = "step6_voltage_seed0"
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -59,18 +65,18 @@ def _copy_ablation_scale(cfg):
     return cfg
 
 
-def _build_train_cfg(reward_mode: str):
+def _build_train_cfg():
     cfg = _copy_ablation_scale(TrainConfig.ablation_l0())
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
-    cfg.reward_mode = reward_mode
+    cfg.reward_mode = "voltage"
     cfg.cheat_grid_cost_scale = GRID_COST_SCALE
+    cfg.voltage_grid_norm_scale = VOLTAGE_GRID_NORM_SCALE
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step5"
-    run_name = f"step5_{reward_mode}_seed0"
-    cfg.output_dir = os.path.join("runs", run_name)
-    cfg.checkpoint_basename = run_name
+    cfg.train_scale = "step6"
+    cfg.output_dir = os.path.join("runs", VOLTAGE_CHECKPOINT)
+    cfg.checkpoint_basename = VOLTAGE_CHECKPOINT
     return cfg
 
 
@@ -83,11 +89,16 @@ def _build_eval_cfg(eval_seed: int):
     return cfg
 
 
-def _count_eval_voltage_violations(bus_voltages):
-    return sum(
-        1
-        for v_pu in bus_voltages.values()
-        if float(v_pu) < EVAL_VOLTAGE_THRESHOLD
+def _build_env(cfg, seed):
+    station_node_ids = resolve_station_nodes(cfg.station_config_file, cfg.station_id_key)
+    return RealTrafficEnv(
+        graphml_file=cfg.graphml_file,
+        num_stations=cfg.num_stations,
+        num_evs=cfg.num_evs,
+        max_nodes=cfg.max_nodes,
+        seed=seed,
+        station_node_ids=station_node_ids,
+        respawn_after_full_charge=getattr(cfg, "respawn_after_full_charge", True),
     )
 
 
@@ -124,83 +135,76 @@ def _print_summary(name, values):
     return s
 
 
-def _random_actions_with_metrics(env, rng):
-    actions = {}
-    dispatch = []
-    pending_counts = {s.id: 0 for s in env.stations}
-    for ev in env.get_pending_decision_evs():
-        mask = env.get_action_mask(ev)
-        valid = [idx for idx in range(env.num_stations) if mask[0, idx].item()]
-        if not valid:
-            continue
-        action = rng.choice(valid)
-        metrics = env.estimate_action_metrics(ev, action, pending_counts)
-        actions[ev.id] = action
-        dispatch.append((ev.id, action, metrics))
-        pending_counts[action] += 1
-    return actions, dispatch
-
-
-def _mean_voltage_excursion(bus_voltages):
-    if not bus_voltages:
-        return 0.0
+def _count_eval_voltage_violations(bus_voltages):
     return sum(
-        max(0.0, VOLTAGE_THRESHOLD - float(v_pu))
+        1
         for v_pu in bus_voltages.values()
-    ) / len(bus_voltages)
-
-
-def _build_env(cfg, seed):
-    station_node_ids = resolve_station_nodes(cfg.station_config_file, cfg.station_id_key)
-    return RealTrafficEnv(
-        graphml_file=cfg.graphml_file,
-        num_stations=cfg.num_stations,
-        num_evs=cfg.num_evs,
-        max_nodes=cfg.max_nodes,
-        seed=seed,
-        station_node_ids=station_node_ids,
-        respawn_after_full_charge=getattr(cfg, "respawn_after_full_charge", True),
+        if float(v_pu) < EVAL_VOLTAGE_THRESHOLD
     )
 
 
 def run_dry_run():
-    cfg = _build_train_cfg("cheat")
+    cfg = _build_train_cfg()
     rng = random.Random(EXPERIMENT_SEED)
     episode_seeds = _episode_seeds(EXPERIMENT_SEED, DRY_RUN_EPISODES)
     user_norms = []
     grid_norms = []
     decisions = 0
 
-    print("Step 5 cheat reward dry-run (pandapower, random policy)")
+    print("Step 6 voltage reward dry-run (pandapower, random policy)")
     print(
         f"episodes={DRY_RUN_EPISODES}, steps_per_episode={cfg.steps_per_episode}, "
-        f"num_evs={cfg.num_evs}, grid_norm=mean_33bus_voltage_excursion*{CHEAT_GRID_NORM_SCALE:.1f}"
+        f"num_evs={cfg.num_evs}, threshold={VOLTAGE_THRESHOLD}, "
+        f"grid_norm_scale={cfg.voltage_grid_norm_scale:.1f}"
     )
 
     for ep_idx, seed in enumerate(episode_seeds, start=1):
         env = _build_env(cfg, seed=seed)
         ep_decisions = 0
         for _ in range(cfg.steps_per_episode):
-            actions, dispatch = _random_actions_with_metrics(env, rng)
-            _, _, _, info = env.step(actions)
-            grid_norm = _mean_voltage_excursion(info.get("bus_voltages", {})) * CHEAT_GRID_NORM_SCALE
-            for _, _, metrics in dispatch:
+            urgent_evs = env.get_pending_decision_evs()
+            actions = {}
+            pending_counts = {s.id: 0 for s in env.stations}
+
+            for ev in urgent_evs:
+                action_mask = env.get_action_mask(ev)
+                valid = [i for i in range(len(env.stations)) if action_mask[0, i].item()]
+                action = rng.choice(valid) if valid else 0
+                station = env.stations[action]
+                metrics = env.estimate_action_metrics(ev, action, pending_counts)
                 user_norm = (metrics["queue_time_h"] + metrics["trip_time_h"]) / 2.0
+
+                pred = {}
+                try:
+                    pred = env._estimate_ev_station_metrics(ev, station)
+                except Exception:
+                    pred = {}
+                est_voltage = pred.get("estimated_voltage_pu_after", None)
+                grid_norm = 0.0
+                if est_voltage is not None:
+                    est_voltage_excursion = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
+                    grid_norm = est_voltage_excursion * cfg.voltage_grid_norm_scale
+
                 user_norms.append(user_norm)
                 grid_norms.append(grid_norm)
-            ep_decisions += len(dispatch)
+                actions[ev.id] = action
+                pending_counts[action] += 1
+                ep_decisions += 1
+
+            env.step(actions)
+
         decisions += ep_decisions
         print(f"[DryRun] episode={ep_idx} decisions={ep_decisions}")
 
     print("\nReward component distributions:")
     user_summary = _print_summary("user_norm", user_norms)
-    grid_summary = _print_summary("grid_norm_scaled", grid_norms)
+    grid_summary = _print_summary("grid_norm", grid_norms)
     user_weighted_p90 = USER_WEIGHT * user_summary["p90"]
     grid_weighted_p90 = GRID_WEIGHT * grid_summary["p90"]
     ratio = grid_weighted_p90 / max(user_weighted_p90, 1e-9)
     print(
-        f"weighted p90: {USER_WEIGHT:.2f}*user_norm={user_weighted_p90:.6f}, "
-        f"{GRID_WEIGHT:.2f}*grid_norm={grid_weighted_p90:.6f}"
+        f"weighted p90: {USER_WEIGHT:.1f}*user_norm={user_weighted_p90:.6f}, "
+        f"{GRID_WEIGHT:.1f}*grid_norm={grid_weighted_p90:.6f}"
     )
     print(f"grid/user weighted p90 ratio={ratio:.3f}")
     print(f"total decisions={decisions}")
@@ -208,12 +212,12 @@ def run_dry_run():
     if 0.5 <= ratio <= 2.0:
         print("[Decision] ratio in [0.5, 2.0]; proceed to training.")
     else:
-        print("[Decision] ratio outside [0.5, 2.0]; stop and tune weights or SCALE.")
+        print("[Decision] ratio outside [0.5, 2.0]; stop and tune GRID_NORM_SCALE.")
 
 
-def train_one(reward_mode: str):
-    cfg = _build_train_cfg(reward_mode)
-    print(f"\n=== Step 5 train {reward_mode} ===")
+def train_voltage():
+    cfg = _build_train_cfg()
+    print("\n=== Step 6 train voltage ===")
     run_training_real(
         num_evs=cfg.num_evs,
         episodes=cfg.episodes,
@@ -233,6 +237,7 @@ def train_one(reward_mode: str):
         mixed_reward_max=cfg.mixed_reward_max,
         reward_mode=cfg.reward_mode,
         cheat_grid_cost_scale=cfg.cheat_grid_cost_scale,
+        voltage_grid_norm_scale=cfg.voltage_grid_norm_scale,
         graphml_file=cfg.graphml_file,
         station_config_file=cfg.station_config_file,
         station_id_key=cfg.station_id_key,
@@ -299,7 +304,14 @@ def _pct_change(base, new):
     return (new - base) / denom * 100.0
 
 
-def _print_compare_table(baseline, cheat):
+def _ceiling_capture(base, cheat, voltage):
+    denom = base - cheat
+    if abs(denom) < 1e-9:
+        return None
+    return (base - voltage) / denom * 100.0
+
+
+def _print_three_way_table(reports):
     rows = [
         "queue_time_h_mean",
         "trip_time_h_mean",
@@ -309,36 +321,71 @@ def _print_compare_table(baseline, cheat):
         "voltage_violation_step_ratio",
         "total_line_losses_kwh",
     ]
-
-    print("\n================================================================")
-    print("Step 5 Compare: baseline vs cheat")
-    print("================================================================")
-    print(f"{'metric':<36} {'baseline':>12} {'cheat':>12} {'cheat vs base':>16}")
-    print("-" * 80)
+    print("\n================================================================================================")
+    print("Step 6 Compare: baseline vs cheat vs voltage")
+    print("================================================================================================")
+    print(
+        f"{'metric':<36} {'baseline':>11} {'cheat':>11} {'voltage':>11} "
+        f"{'voltage vs base':>16} {'voltage vs cheat':>17}"
+    )
+    print("-" * 96)
     for key in rows:
-        b = float(baseline[key])
-        c = float(cheat[key])
-        print(f"{key:<36} {b:>12.4f} {c:>12.4f} {_pct_change(b, c):>15.2f}%")
+        base = float(reports["baseline"][key])
+        cheat = float(reports["cheat"][key])
+        voltage = float(reports["voltage"][key])
+        print(
+            f"{key:<36} {base:>11.4f} {cheat:>11.4f} {voltage:>11.4f} "
+            f"{_pct_change(base, voltage):>15.2f}% {_pct_change(cheat, voltage):>16.2f}%"
+        )
+
+
+def _build_capture_report(reports):
+    capture = {}
+    for key in [
+        "distribution_network_cost_cny",
+        "accumulated_voltage_excursion_pu",
+        "total_line_losses_kwh",
+    ]:
+        capture[key] = _ceiling_capture(
+            float(reports["baseline"][key]),
+            float(reports["cheat"][key]),
+            float(reports["voltage"][key]),
+        )
+    return capture
 
 
 def run_eval():
     eval_seed = EXPERIMENT_SEED
-    baseline_report = _evaluate_checkpoint("step5_baseline_seed0", eval_seed)
-    cheat_report = _evaluate_checkpoint("step5_cheat_seed0", eval_seed)
-    _print_compare_table(baseline_report, cheat_report)
+    reports = {
+        "baseline": _evaluate_checkpoint(BASELINE_CHECKPOINT, eval_seed),
+        "cheat": _evaluate_checkpoint(CHEAT_CHECKPOINT, eval_seed),
+        "voltage": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
+    }
+    _print_three_way_table(reports)
+
+    capture = _build_capture_report(reports)
+    print("\nVoltage-to-cheat ceiling capture on grid metrics:")
+    for key, value in capture.items():
+        text = "n/a" if value is None else f"{value:.2f}%"
+        print(f"{key:<36} {text:>10}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step5_compare_seed0_v092.json")
+    path = os.path.join(RUN_ROOT, "step6_compare_seed0.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
-                "grid_norm_scale": CHEAT_GRID_NORM_SCALE,
-                "eval_voltage_threshold": EVAL_VOLTAGE_THRESHOLD,
+                "seed": EXPERIMENT_SEED,
                 "eval_num_evs": TRAIN_NUM_EVS,
-                "eval_seed": eval_seed,
                 "eval_episodes": EVAL_EPISODES,
-                "baseline": baseline_report,
-                "cheat": cheat_report,
+                "eval_voltage_threshold": EVAL_VOLTAGE_THRESHOLD,
+                "reward_weights": {
+                    "user_weight": USER_WEIGHT,
+                    "grid_weight": GRID_WEIGHT,
+                    "voltage_threshold": VOLTAGE_THRESHOLD,
+                    "grid_norm_scale": VOLTAGE_GRID_NORM_SCALE,
+                },
+                "reports": reports,
+                "voltage_to_cheat_ceiling_capture_pct": capture,
             },
             f,
             indent=2,
@@ -348,21 +395,19 @@ def run_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Step 5 pandapower cheat ceiling runner")
+    parser = argparse.ArgumentParser(description="Step 6 estimator-voltage reward experiment runner")
     parser.add_argument(
         "--mode",
-        choices=["dry-run", "baseline", "cheat", "eval"],
+        choices=["dry-run", "train", "eval"],
         required=True,
-        help="dry-run: inspect reward scale; baseline/cheat: train one model; eval: compare checkpoints",
+        help="dry-run: inspect reward scale; train: train voltage reward; eval: compare baseline/cheat/voltage",
     )
     args = parser.parse_args()
 
     if args.mode == "dry-run":
         run_dry_run()
-    elif args.mode == "baseline":
-        train_one("baseline")
-    elif args.mode == "cheat":
-        train_one("cheat")
+    elif args.mode == "train":
+        train_voltage()
     elif args.mode == "eval":
         run_eval()
 

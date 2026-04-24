@@ -652,6 +652,7 @@ class TrafficPowerEnv:
             "runpp_last_time_s": getattr(self.power_grid, "last_runpp_time_s", 0.0),
             "tou_multiplier": self.tou_multiplier,
             "price_noise": self.price_noise,
+            "step_duration_h": self.step_duration_h,
             "decision_costs": decision_metrics,
             "active_edge_flows": dict(self.edge_active_counts),
             "active_edge_vehicle_count": int(sum(self.edge_active_counts.values())),

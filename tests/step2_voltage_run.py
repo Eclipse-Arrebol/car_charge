@@ -18,8 +18,8 @@ from evaluation.metrics import Evaluator
 from evaluation.strategies import FedDQNStrategy
 from training.config import EvalConfig, TrainConfig
 from training.trainer import (
+    DEFAULT_VOLTAGE_GRID_NORM_SCALE,
     GRID_WEIGHT,
-    GRID_NORM_SCALE,
     USER_WEIGHT,
     VOLTAGE_THRESHOLD,
     run_training_real,
@@ -36,6 +36,7 @@ GRID_COST_SCALE = 300.0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 CHEAT_60_RUN_NAME = "step1_cheat_seed0_60ep"
+GRID_NORM_SCALE = DEFAULT_VOLTAGE_GRID_NORM_SCALE
 
 
 def _episode_seeds(base_seed: int, episodes: int):
