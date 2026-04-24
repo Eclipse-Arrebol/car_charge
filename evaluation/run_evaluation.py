@@ -62,10 +62,11 @@ def _build_eval_env(eval_cfg, seed):
             seed=seed,
             station_node_ids=station_node_ids,
             respawn_after_full_charge=getattr(eval_cfg, "respawn_after_full_charge", False),
-        )
-        env.enable_queue_timeout_mask = True
-        env.queue_timeout_mask_safety_margin_h = 3.2
-        return env
+)
+env.enable_queue_timeout_mask = True
+env.queue_timeout_mask_safety_margin_h = 3.5
+env.queue_timeout_mask_capacity_ratio = 1.5
+return env
     return TrafficPowerEnv(num_evs=eval_cfg.num_evs)
 
 

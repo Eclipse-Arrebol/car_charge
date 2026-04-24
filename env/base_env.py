@@ -521,21 +521,33 @@ class TrafficPowerEnv:
                     mask[0, i] = False
                     continue
                 if enable_timeout_mask:
-                    # 预测排队超时过滤：防止 policy 选爆队站导致 abandoned
                     incoming = 0 if pending_counts is None else pending_counts.get(station.id, 0)
+                    # 新增:硬容量比例 mask(每个充电桩平均被挤 1.5 辆以上则拒绝)
+                    load_ratio = (
+                        len(station.queue) + len(station.connected_evs) + incoming
+                    ) / max(1, station.num_chargers)
+                    capacity_threshold = getattr(self, "queue_timeout_mask_capacity_ratio", 1.5)
+                    if getattr(self, "_debug_step_count", 0) < 5:
+                        est_queue_h_dbg = station.estimate_queue_wait_hours(incoming_count=incoming)
+                        print(
+                            f"[mask_debug] station={i} queue_len={len(station.queue)} "
+                            f"connected={len(station.connected_evs)} incoming={incoming} "
+                            f"load_ratio={load_ratio:.3f} cap_thresh={capacity_threshold:.3f} "
+                            f"est_queue_h={est_queue_h_dbg:.3f} est_trip_h={metrics['trip_time_h']:.3f} "
+                            f"est_total_h={metrics['trip_time_h'] + est_queue_h_dbg:.3f} "
+                            f"mask_by_capacity={load_ratio > capacity_threshold} "
+                            f"mask_by_time={metrics['trip_time_h'] + est_queue_h_dbg >= station.max_wait_time_h - getattr(self, 'queue_timeout_mask_safety_margin_h', 0.5)}"
+                        )
+
+                    if load_ratio > capacity_threshold:
+                        mask[0, i] = False
+                        continue
+
+                    # 原有 timeout 判断保持
                     est_queue_h = station.estimate_queue_wait_hours(incoming_count=incoming)
                     est_total_h = metrics["trip_time_h"] + est_queue_h
                     safety_margin_h = getattr(self, "queue_timeout_mask_safety_margin_h", 0.5)
                     max_wait_time_h = getattr(station, "max_wait_time_h", 4.0)
-                    if getattr(self, "_debug_step_count", 0) < 5:
-                        print(
-                            f"[mask_debug] station={i} queue_len={len(station.queue)} "
-                            f"incoming={incoming} est_queue_h={est_queue_h:.3f} "
-                            f"est_trip_h={metrics['trip_time_h']:.3f} est_total_h={est_total_h:.3f} "
-                            f"threshold={max_wait_time_h - safety_margin_h:.3f} "
-                            f"mask_to_false={est_total_h >= max_wait_time_h - safety_margin_h}"
-                        )
-
                     if est_total_h >= max_wait_time_h - safety_margin_h:
                         mask[0, i] = False
                         continue

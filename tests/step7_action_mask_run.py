@@ -96,7 +96,8 @@ def _build_env(cfg, seed):
         respawn_after_full_charge=getattr(cfg, "respawn_after_full_charge", True),
     )
     env.enable_queue_timeout_mask = True
-    env.queue_timeout_mask_safety_margin_h = 3.2
+    env.queue_timeout_mask_safety_margin_h = 3.5
+    env.queue_timeout_mask_capacity_ratio = 1.5
     return env
 
 
