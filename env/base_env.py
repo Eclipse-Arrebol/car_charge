@@ -73,7 +73,6 @@ class TrafficPowerEnv:
 
     def reset(self):
         self._reset_mask_stats_and_print()
-        self._debug_step_count = 0
         self.stations = [
             ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A",
                             respawn_after_full_charge=self.respawn_after_full_charge),
@@ -527,17 +526,6 @@ class TrafficPowerEnv:
                         len(station.queue) + len(station.connected_evs) + incoming
                     ) / max(1, station.num_chargers)
                     capacity_threshold = getattr(self, "queue_timeout_mask_capacity_ratio", 1.5)
-                    if getattr(self, "_debug_step_count", 0) < 5:
-                        est_queue_h_dbg = station.estimate_queue_wait_hours(incoming_count=incoming)
-                        print(
-                            f"[mask_debug] station={i} queue_len={len(station.queue)} "
-                            f"connected={len(station.connected_evs)} incoming={incoming} "
-                            f"load_ratio={load_ratio:.3f} cap_thresh={capacity_threshold:.3f} "
-                            f"est_queue_h={est_queue_h_dbg:.3f} est_trip_h={metrics['trip_time_h']:.3f} "
-                            f"est_total_h={metrics['trip_time_h'] + est_queue_h_dbg:.3f} "
-                            f"mask_by_capacity={load_ratio > capacity_threshold} "
-                            f"mask_by_time={metrics['trip_time_h'] + est_queue_h_dbg >= station.max_wait_time_h - getattr(self, 'queue_timeout_mask_safety_margin_h', 0.5)}"
-                        )
 
                     if load_ratio > capacity_threshold:
                         mask[0, i] = False
@@ -582,7 +570,6 @@ class TrafficPowerEnv:
 
     def step(self, actions):
         self.time_step += 1
-        self._debug_step_count = getattr(self, "_debug_step_count", 0) + 1
         self.edge_step_counts = {}
         self.edge_peak_counts = {}
         self._path_cache_step: dict = {}
