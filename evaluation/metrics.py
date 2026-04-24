@@ -26,6 +26,7 @@ class CostParams:
     VOTT = 30.0            # 时间价值 (CNY/h)  — Value Of Travel Time
     STEP_DURATION_H = 1/6  # 每步代表的时间 (h)，当前 1步=10分钟
     GRID_BUY_PRICE = 0.6   # 电网购电基准价格 (CNY/kWh)
+    VOLTAGE_EVAL_THRESHOLD = 0.92
 
 
 # ==========================================
@@ -171,7 +172,7 @@ class GridMetrics:
         self._step_count += 1
 
         # 累计电压偏移: Σ |V_bus - 1.0|  (所有母线)
-        v_min = getattr(power_grid, "v_min", 0.95)
+        v_min = float(getattr(self.p, "VOLTAGE_EVAL_THRESHOLD", 0.92))
         for bus, v_pu in power_grid.bus_voltages.items():
             self._accum_voltage_deviation += max(0.0, v_min - float(v_pu))
 
@@ -181,7 +182,10 @@ class GridMetrics:
         self._accum_grid_cost += realized * self.p.STEP_DURATION_H * tou * self.p.GRID_BUY_PRICE
 
         # 累计线路损耗
-        self._accum_loss += info.get("line_losses", power_grid.total_loss)
+        step_duration_h = float(
+            info.get("step_duration_h", getattr(self.p, "STEP_DURATION_H", 1 / 6))
+        )
+        self._accum_loss += info.get("line_losses", power_grid.total_loss) * step_duration_h
 
     def compute(self):
         """

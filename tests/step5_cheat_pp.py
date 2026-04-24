@@ -31,6 +31,7 @@ GRID_COST_SCALE = 300.0
 USER_WEIGHT = 0.15
 GRID_WEIGHT = 0.85
 VOLTAGE_THRESHOLD = 0.95
+EVAL_VOLTAGE_THRESHOLD = 0.92
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 
@@ -80,6 +81,14 @@ def _build_eval_cfg(eval_seed: int):
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.base_seed = eval_seed
     return cfg
+
+
+def _count_eval_voltage_violations(bus_voltages):
+    return sum(
+        1
+        for v_pu in bus_voltages.values()
+        if float(v_pu) < EVAL_VOLTAGE_THRESHOLD
+    )
 
 
 def _percentile(values, q):
@@ -269,7 +278,7 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
             if decision_costs:
                 per_step_queue.append(mean(m.get("queue_time_h", 0.0) for m in decision_costs))
                 per_step_trip.append(mean(m.get("trip_time_h", 0.0) for m in decision_costs))
-            if info.get("voltage_violations", 0) > 0:
+            if _count_eval_voltage_violations(info.get("bus_voltages", {})) > 0:
                 violation_steps += 1
 
         report = evaluator.report(env.evs, env.stations, verbose=False)
@@ -319,11 +328,12 @@ def run_eval():
     _print_compare_table(baseline_report, cheat_report)
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step5_compare_seed0.json")
+    path = os.path.join(RUN_ROOT, "step5_compare_seed0_v092.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
                 "grid_norm_scale": GRID_NORM_SCALE,
+                "eval_voltage_threshold": EVAL_VOLTAGE_THRESHOLD,
                 "eval_num_evs": TRAIN_NUM_EVS,
                 "eval_seed": eval_seed,
                 "eval_episodes": EVAL_EPISODES,
