@@ -42,8 +42,9 @@ MIXED_REWARD_MIN = -20.0
 MIXED_REWARD_MAX = 5.0
 DEFAULT_REWARD_MODE = "baseline"
 DEFAULT_CHEAT_GRID_COST_SCALE = 1.0
-USER_WEIGHT = 0.3
-GRID_WEIGHT = 0.7
+DEFAULT_VOLTAGE_USER_WEIGHT = 0.3
+DEFAULT_VOLTAGE_GRID_WEIGHT = 0.7
+DEFAULT_VOLTAGE_ABANDON_PENALTY = 0.0
 VOLTAGE_THRESHOLD = 0.95
 CHEAT_GRID_NORM_SCALE = 5.0
 DEFAULT_VOLTAGE_GRID_NORM_SCALE = 1.0
@@ -158,6 +159,25 @@ class FederatedTrainer:
         if reward_mode == "voltage":
             station = env.stations[action]
             user_norm = (metrics["queue_time_h"] + metrics["trip_time_h"]) / 2.0
+            voltage_user_weight = float(
+                getattr(self.cfg, "voltage_user_weight", DEFAULT_VOLTAGE_USER_WEIGHT)
+            )
+            voltage_grid_weight = float(
+                getattr(self.cfg, "voltage_grid_weight", DEFAULT_VOLTAGE_GRID_WEIGHT)
+            )
+            voltage_abandon_penalty = float(
+                getattr(self.cfg, "voltage_abandon_penalty", DEFAULT_VOLTAGE_ABANDON_PENALTY)
+            )
+            if ev is not None and getattr(ev, "just_abandoned_this_step", False):
+                per_ev_r = -voltage_abandon_penalty
+                clipped = max(-5.0, min(0.0, per_ev_r))
+                return {
+                    "reward": clipped,
+                    "user_norm": user_norm,
+                    "voltage_excursion": 0.0,
+                    "grid_cost_norm": 0.0,
+                    "weighted_sum": -clipped,
+                }
             pred = {}
             if ev is not None:
                 try:
@@ -182,7 +202,7 @@ class FederatedTrainer:
                 getattr(self.cfg, "voltage_grid_norm_scale", DEFAULT_VOLTAGE_GRID_NORM_SCALE)
             )
             grid_norm = est_voltage_excursion * voltage_grid_norm_scale
-            weighted_sum = USER_WEIGHT * user_norm + GRID_WEIGHT * grid_norm
+            weighted_sum = voltage_user_weight * user_norm + voltage_grid_weight * grid_norm
             per_ev_r = -weighted_sum
             clipped = max(-3.0, min(0.0, per_ev_r))
             return {
@@ -352,6 +372,12 @@ class FederatedTrainer:
                     stats["episode_service_h_sum"] += metrics["service_time_h"]
 
                     ev_dispatch.append((ev, ev_state, action, per_ev_r, action_mask, metrics))
+                    ev._decision_state = ev_state
+                    ev._decision_snap = {
+                        "action": action,
+                        "action_mask": action_mask,
+                        "metrics": metrics,
+                    }
                     pending_counts[action] += 1
                 stats["episode_action_build_s"] += time.perf_counter() - t0
 
@@ -360,6 +386,37 @@ class FederatedTrainer:
                 stats["episode_env_step_s"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
+                if getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE) == "voltage":
+                    abandon_ids = set(info.get("abandoned_this_step", []))
+                    if abandon_ids:
+                        ev_lookup = {ev.id: ev for ev in env.evs}
+                        for abandoned_id in abandon_ids:
+                            abandoned_ev = ev_lookup.get(abandoned_id)
+                            if abandoned_ev is None:
+                                continue
+                            decision_state = getattr(abandoned_ev, "_decision_state", None)
+                            decision_snap = getattr(abandoned_ev, "_decision_snap", None)
+                            if decision_state is None or not decision_snap:
+                                continue
+                            components = self._build_training_reward_components(
+                                env,
+                                decision_snap["action"],
+                                decision_snap.get("metrics", {}),
+                                info,
+                                ev=abandoned_ev,
+                            )
+                            next_ev_state = env.get_graph_state_for_ev(abandoned_ev)
+                            client.store_transition(
+                                decision_state,
+                                decision_snap["action"],
+                                components["reward"],
+                                next_ev_state,
+                                action_mask=decision_snap.get("action_mask"),
+                            )
+                            stats["total_mixed_reward"] += components["reward"]
+                            stats["total_decisions"] += 1
+                            abandoned_ev._decision_state = None
+                            abandoned_ev._decision_snap = None
                 for ev, ev_state, act, per_ev_r, mask, metrics in ev_dispatch:
                     if getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE) == "baseline":
                         mixed_r = per_ev_r / 2.0
@@ -377,6 +434,9 @@ class FederatedTrainer:
                     )
                     stats["total_mixed_reward"] += mixed_r
                     stats["total_decisions"] += 1
+                    if getattr(ev, "_decision_state", None) is ev_state:
+                        ev._decision_state = None
+                        ev._decision_snap = None
                 stats["episode_store_s"] += time.perf_counter() - t0
 
                 should_step_train = (
@@ -599,7 +659,10 @@ def run_training_real(
     mixed_reward_max=MIXED_REWARD_MAX,
     reward_mode=DEFAULT_REWARD_MODE,
     cheat_grid_cost_scale=DEFAULT_CHEAT_GRID_COST_SCALE,
+    voltage_user_weight=DEFAULT_VOLTAGE_USER_WEIGHT,
+    voltage_grid_weight=DEFAULT_VOLTAGE_GRID_WEIGHT,
     voltage_grid_norm_scale=DEFAULT_VOLTAGE_GRID_NORM_SCALE,
+    voltage_abandon_penalty=DEFAULT_VOLTAGE_ABANDON_PENALTY,
     graphml_file=LOCAL_GRAPHML,
     station_config_file=None,
     station_id_key="l0_station_nodes",
@@ -625,7 +688,10 @@ def run_training_real(
         mixed_reward_max=mixed_reward_max,
         reward_mode=reward_mode,
         cheat_grid_cost_scale=cheat_grid_cost_scale,
+        voltage_user_weight=voltage_user_weight,
+        voltage_grid_weight=voltage_grid_weight,
         voltage_grid_norm_scale=voltage_grid_norm_scale,
+        voltage_abandon_penalty=voltage_abandon_penalty,
         proximal_mu=proximal_mu,
         use_dp=use_dp,
         dp_noise_multiplier=dp_noise_multiplier,

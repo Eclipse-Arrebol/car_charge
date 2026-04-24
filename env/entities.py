@@ -38,6 +38,7 @@ class EV:
         self.charge_sessions = 0
         self.charge_started_count = 0
         self.abandoned_charge_count = 0
+        self.just_abandoned_this_step = False
 
     def move(self, env, step_hours=1.0):
         self.last_traversed_nodes = []

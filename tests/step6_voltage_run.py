@@ -17,12 +17,7 @@ from env.real_env import RealTrafficEnv
 from evaluation.metrics import Evaluator
 from evaluation.strategies import FedDQNStrategy
 from training.config import EvalConfig, TrainConfig
-from training.trainer import (
-    GRID_WEIGHT,
-    USER_WEIGHT,
-    VOLTAGE_THRESHOLD,
-    run_training_real,
-)
+from training.trainer import VOLTAGE_THRESHOLD, run_training_real
 
 
 DRY_RUN_EPISODES = 3
@@ -34,12 +29,27 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 GRID_COST_SCALE = 300.0
 EVAL_VOLTAGE_THRESHOLD = 0.92
-VOLTAGE_GRID_NORM_SCALE = 5.0
+DRY_RUN_RATIO_MIN = 0.3
+DRY_RUN_RATIO_MAX = 2.0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
 BASELINE_CHECKPOINT = "step5_baseline_seed0"
 CHEAT_CHECKPOINT = "step5_cheat_seed0"
-VOLTAGE_CHECKPOINT = "step6_voltage_seed0"
+
+VOLTAGE_CONFIGS = {
+    "voltage_scale2": {
+        "run_name": "step6_voltage_scale2_seed0",
+        "user_weight": 0.3,
+        "grid_weight": 0.7,
+        "grid_norm_scale": 2.0,
+    },
+    "voltage_weight55": {
+        "run_name": "step6_voltage_weight55_seed0",
+        "user_weight": 0.5,
+        "grid_weight": 0.5,
+        "grid_norm_scale": 5.0,
+    },
+}
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -65,18 +75,21 @@ def _copy_ablation_scale(cfg):
     return cfg
 
 
-def _build_train_cfg():
+def _build_train_cfg(config_name: str):
+    spec = VOLTAGE_CONFIGS[config_name]
     cfg = _copy_ablation_scale(TrainConfig.ablation_l0())
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
     cfg.reward_mode = "voltage"
     cfg.cheat_grid_cost_scale = GRID_COST_SCALE
-    cfg.voltage_grid_norm_scale = VOLTAGE_GRID_NORM_SCALE
+    cfg.voltage_user_weight = spec["user_weight"]
+    cfg.voltage_grid_weight = spec["grid_weight"]
+    cfg.voltage_grid_norm_scale = spec["grid_norm_scale"]
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step6"
-    cfg.output_dir = os.path.join("runs", VOLTAGE_CHECKPOINT)
-    cfg.checkpoint_basename = VOLTAGE_CHECKPOINT
+    cfg.train_scale = "step6_tuning"
+    cfg.output_dir = os.path.join("runs", spec["run_name"])
+    cfg.checkpoint_basename = spec["run_name"]
     return cfg
 
 
@@ -143,19 +156,21 @@ def _count_eval_voltage_violations(bus_voltages):
     )
 
 
-def run_dry_run():
-    cfg = _build_train_cfg()
+def _run_single_dry_run(config_name: str):
+    spec = VOLTAGE_CONFIGS[config_name]
+    cfg = _build_train_cfg(config_name)
     rng = random.Random(EXPERIMENT_SEED)
     episode_seeds = _episode_seeds(EXPERIMENT_SEED, DRY_RUN_EPISODES)
     user_norms = []
     grid_norms = []
     decisions = 0
 
-    print("Step 6 voltage reward dry-run (pandapower, random policy)")
+    print("\n================================================================")
+    print(f"Dry-Run: {config_name}")
+    print("================================================================")
     print(
-        f"episodes={DRY_RUN_EPISODES}, steps_per_episode={cfg.steps_per_episode}, "
-        f"num_evs={cfg.num_evs}, threshold={VOLTAGE_THRESHOLD}, "
-        f"grid_norm_scale={cfg.voltage_grid_norm_scale:.1f}"
+        f"user_weight={spec['user_weight']:.1f}, grid_weight={spec['grid_weight']:.1f}, "
+        f"grid_norm_scale={spec['grid_norm_scale']:.1f}, threshold={VOLTAGE_THRESHOLD}"
     )
 
     for ep_idx, seed in enumerate(episode_seeds, start=1):
@@ -183,7 +198,7 @@ def run_dry_run():
                 grid_norm = 0.0
                 if est_voltage is not None:
                     est_voltage_excursion = max(0.0, VOLTAGE_THRESHOLD - float(est_voltage))
-                    grid_norm = est_voltage_excursion * cfg.voltage_grid_norm_scale
+                    grid_norm = est_voltage_excursion * spec["grid_norm_scale"]
 
                 user_norms.append(user_norm)
                 grid_norms.append(grid_norm)
@@ -199,25 +214,52 @@ def run_dry_run():
     print("\nReward component distributions:")
     user_summary = _print_summary("user_norm", user_norms)
     grid_summary = _print_summary("grid_norm", grid_norms)
-    user_weighted_p90 = USER_WEIGHT * user_summary["p90"]
-    grid_weighted_p90 = GRID_WEIGHT * grid_summary["p90"]
+    user_weighted_p90 = spec["user_weight"] * user_summary["p90"]
+    grid_weighted_p90 = spec["grid_weight"] * grid_summary["p90"]
     ratio = grid_weighted_p90 / max(user_weighted_p90, 1e-9)
     print(
-        f"weighted p90: {USER_WEIGHT:.1f}*user_norm={user_weighted_p90:.6f}, "
-        f"{GRID_WEIGHT:.1f}*grid_norm={grid_weighted_p90:.6f}"
+        f"weighted p90: {spec['user_weight']:.1f}*user_norm={user_weighted_p90:.6f}, "
+        f"{spec['grid_weight']:.1f}*grid_norm={grid_weighted_p90:.6f}"
     )
     print(f"grid/user weighted p90 ratio={ratio:.3f}")
     print(f"total decisions={decisions}")
+    return {
+        "config": config_name,
+        "user_summary": user_summary,
+        "grid_summary": grid_summary,
+        "user_weighted_p90": user_weighted_p90,
+        "grid_weighted_p90": grid_weighted_p90,
+        "ratio": ratio,
+    }
 
-    if 0.5 <= ratio <= 2.0:
-        print("[Decision] ratio in [0.5, 2.0]; proceed to training.")
+
+def run_dry_run_all():
+    results = {}
+    for config_name in VOLTAGE_CONFIGS:
+        results[config_name] = _run_single_dry_run(config_name)
+
+    failed = [
+        name
+        for name, result in results.items()
+        if not (DRY_RUN_RATIO_MIN <= result["ratio"] <= DRY_RUN_RATIO_MAX)
+    ]
+    print("\n================================================================")
+    print("Dry-Run Decision")
+    print("================================================================")
+    if failed:
+        print(f"[Decision] stop before training; ratio outside [{DRY_RUN_RATIO_MIN}, {DRY_RUN_RATIO_MAX}] for: {', '.join(failed)}")
     else:
-        print("[Decision] ratio outside [0.5, 2.0]; stop and tune GRID_NORM_SCALE.")
+        print(f"[Decision] both ratios in [{DRY_RUN_RATIO_MIN}, {DRY_RUN_RATIO_MAX}]; proceed to training.")
 
 
-def train_voltage():
-    cfg = _build_train_cfg()
-    print("\n=== Step 6 train voltage ===")
+def train_voltage(config_name: str):
+    cfg = _build_train_cfg(config_name)
+    spec = VOLTAGE_CONFIGS[config_name]
+    print(f"\n=== Train {config_name} ===")
+    print(
+        f"user_weight={spec['user_weight']:.1f}, grid_weight={spec['grid_weight']:.1f}, "
+        f"grid_norm_scale={spec['grid_norm_scale']:.1f}"
+    )
     run_training_real(
         num_evs=cfg.num_evs,
         episodes=cfg.episodes,
@@ -237,6 +279,8 @@ def train_voltage():
         mixed_reward_max=cfg.mixed_reward_max,
         reward_mode=cfg.reward_mode,
         cheat_grid_cost_scale=cfg.cheat_grid_cost_scale,
+        voltage_user_weight=cfg.voltage_user_weight,
+        voltage_grid_weight=cfg.voltage_grid_weight,
         voltage_grid_norm_scale=cfg.voltage_grid_norm_scale,
         graphml_file=cfg.graphml_file,
         station_config_file=cfg.station_config_file,
@@ -265,7 +309,6 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
         evaluator.reset()
         per_step_queue = []
         per_step_trip = []
-        violation_steps = 0
 
         for _ in range(eval_cfg.steps_per_episode):
             urgent_evs = env.get_pending_decision_evs()
@@ -283,13 +326,11 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
             if decision_costs:
                 per_step_queue.append(mean(m.get("queue_time_h", 0.0) for m in decision_costs))
                 per_step_trip.append(mean(m.get("trip_time_h", 0.0) for m in decision_costs))
-            if _count_eval_voltage_violations(info.get("bus_voltages", {})) > 0:
-                violation_steps += 1
+            _count_eval_voltage_violations(info.get("bus_voltages", {}))
 
         report = evaluator.report(env.evs, env.stations, verbose=False)
         report["queue_time_h_mean"] = mean(per_step_queue) if per_step_queue else 0.0
         report["trip_time_h_mean"] = mean(per_step_trip) if per_step_trip else 0.0
-        report["voltage_violation_step_ratio"] = violation_steps / max(1, eval_cfg.steps_per_episode)
         reports.append(report)
 
     avg = {}
@@ -304,54 +345,32 @@ def _pct_change(base, new):
     return (new - base) / denom * 100.0
 
 
-def _ceiling_capture(base, cheat, voltage):
-    denom = base - cheat
-    if abs(denom) < 1e-9:
-        return None
-    return (base - voltage) / denom * 100.0
-
-
-def _print_three_way_table(reports):
+def _print_four_way_table(reports):
     rows = [
-        "queue_time_h_mean",
-        "trip_time_h_mean",
         "abandoned_evs",
-        "distribution_network_cost_cny",
         "accumulated_voltage_excursion_pu",
-        "voltage_violation_step_ratio",
         "total_line_losses_kwh",
+        "trip_time_h_mean",
+        "queue_time_h_mean",
+        "distribution_network_cost_cny",
     ]
-    print("\n================================================================================================")
-    print("Step 6 Compare: baseline vs cheat vs voltage")
-    print("================================================================================================")
+    print("\n========================================================================================================================")
+    print("Step 6 Tuning Compare: baseline vs cheat vs voltage_scale2 vs voltage_weight55")
+    print("========================================================================================================================")
     print(
-        f"{'metric':<36} {'baseline':>11} {'cheat':>11} {'voltage':>11} "
-        f"{'voltage vs base':>16} {'voltage vs cheat':>17}"
+        f"{'metric':<34} {'baseline':>11} {'cheat':>11} {'scale2':>11} {'weight55':>11} "
+        f"{'scale2 vs base':>15} {'weight55 vs base':>17}"
     )
-    print("-" * 96)
+    print("-" * 124)
     for key in rows:
         base = float(reports["baseline"][key])
         cheat = float(reports["cheat"][key])
-        voltage = float(reports["voltage"][key])
+        scale2 = float(reports["voltage_scale2"][key])
+        weight55 = float(reports["voltage_weight55"][key])
         print(
-            f"{key:<36} {base:>11.4f} {cheat:>11.4f} {voltage:>11.4f} "
-            f"{_pct_change(base, voltage):>15.2f}% {_pct_change(cheat, voltage):>16.2f}%"
+            f"{key:<34} {base:>11.4f} {cheat:>11.4f} {scale2:>11.4f} {weight55:>11.4f} "
+            f"{_pct_change(base, scale2):>14.2f}% {_pct_change(base, weight55):>16.2f}%"
         )
-
-
-def _build_capture_report(reports):
-    capture = {}
-    for key in [
-        "distribution_network_cost_cny",
-        "accumulated_voltage_excursion_pu",
-        "total_line_losses_kwh",
-    ]:
-        capture[key] = _ceiling_capture(
-            float(reports["baseline"][key]),
-            float(reports["cheat"][key]),
-            float(reports["voltage"][key]),
-        )
-    return capture
 
 
 def run_eval():
@@ -359,18 +378,17 @@ def run_eval():
     reports = {
         "baseline": _evaluate_checkpoint(BASELINE_CHECKPOINT, eval_seed),
         "cheat": _evaluate_checkpoint(CHEAT_CHECKPOINT, eval_seed),
-        "voltage": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
+        "voltage_scale2": _evaluate_checkpoint(VOLTAGE_CONFIGS["voltage_scale2"]["run_name"], eval_seed),
+        "voltage_weight55": _evaluate_checkpoint(VOLTAGE_CONFIGS["voltage_weight55"]["run_name"], eval_seed),
     }
-    _print_three_way_table(reports)
+    _print_four_way_table(reports)
 
-    capture = _build_capture_report(reports)
-    print("\nVoltage-to-cheat ceiling capture on grid metrics:")
-    for key, value in capture.items():
-        text = "n/a" if value is None else f"{value:.2f}%"
-        print(f"{key:<36} {text:>10}")
+    print("\nAbandoned EVs:")
+    for key in ["baseline", "cheat", "voltage_scale2", "voltage_weight55"]:
+        print(f"{key:<18} {float(reports[key]['abandoned_evs']):.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step6_compare_seed0.json")
+    path = os.path.join(RUN_ROOT, "step6_tuning_compare_seed0.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -378,14 +396,8 @@ def run_eval():
                 "eval_num_evs": TRAIN_NUM_EVS,
                 "eval_episodes": EVAL_EPISODES,
                 "eval_voltage_threshold": EVAL_VOLTAGE_THRESHOLD,
-                "reward_weights": {
-                    "user_weight": USER_WEIGHT,
-                    "grid_weight": GRID_WEIGHT,
-                    "voltage_threshold": VOLTAGE_THRESHOLD,
-                    "grid_norm_scale": VOLTAGE_GRID_NORM_SCALE,
-                },
+                "voltage_configs": VOLTAGE_CONFIGS,
                 "reports": reports,
-                "voltage_to_cheat_ceiling_capture_pct": capture,
             },
             f,
             indent=2,
@@ -395,20 +407,29 @@ def run_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Step 6 estimator-voltage reward experiment runner")
+    parser = argparse.ArgumentParser(description="Step 6 voltage reward tuning runner")
     parser.add_argument(
         "--mode",
-        choices=["dry-run", "train", "eval"],
+        choices=["dry-run-all", "train", "eval"],
         required=True,
-        help="dry-run: inspect reward scale; train: train voltage reward; eval: compare baseline/cheat/voltage",
+        help="dry-run-all: run both dry-runs; train: train one named config; eval: four-way comparison",
+    )
+    parser.add_argument(
+        "--config",
+        choices=sorted(VOLTAGE_CONFIGS.keys()),
+        help="Required when --mode train",
     )
     args = parser.parse_args()
 
-    if args.mode == "dry-run":
-        run_dry_run()
-    elif args.mode == "train":
-        train_voltage()
-    elif args.mode == "eval":
+    if args.mode == "dry-run-all":
+        run_dry_run_all()
+        return
+    if args.mode == "train":
+        if not args.config:
+            parser.error("--config is required when --mode train")
+        train_voltage(args.config)
+        return
+    if args.mode == "eval":
         run_eval()
 
 

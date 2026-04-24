@@ -508,6 +508,9 @@ class TrafficPowerEnv:
         self.edge_step_counts = {}
         self.edge_peak_counts = {}
         self._path_cache_step: dict = {}
+        abandoned_this_step = []
+        for ev in self.evs:
+            ev.just_abandoned_this_step = False
         grid_loads = {station.power_node_id: 0.0 for station in self.stations}
         decision_metrics = {}
         pending_counts = {s.id: 0 for s in self.stations}
@@ -594,6 +597,8 @@ class TrafficPowerEnv:
                     if ev in target_station.queue:
                         target_station.queue.remove(ev)
                     ev.abandoned_charge_count += 1
+                    ev.just_abandoned_this_step = True
+                    abandoned_this_step.append(ev.id)
                     self._reset_ev_charging_attempt(ev)
 
             elif ev.status == "CHARGING":
@@ -653,6 +658,7 @@ class TrafficPowerEnv:
             "tou_multiplier": self.tou_multiplier,
             "price_noise": self.price_noise,
             "step_duration_h": self.step_duration_h,
+            "abandoned_this_step": abandoned_this_step,
             "decision_costs": decision_metrics,
             "active_edge_flows": dict(self.edge_active_counts),
             "active_edge_vehicle_count": int(sum(self.edge_active_counts.values())),
