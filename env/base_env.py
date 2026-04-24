@@ -73,6 +73,7 @@ class TrafficPowerEnv:
 
     def reset(self):
         self._reset_mask_stats_and_print()
+        self._debug_step_count = 0
         self.stations = [
             ChargingStation(station_id=0, traffic_node_id=0, power_node_id="Grid_A",
                             respawn_after_full_charge=self.respawn_after_full_charge),
@@ -526,6 +527,14 @@ class TrafficPowerEnv:
                     est_total_h = metrics["trip_time_h"] + est_queue_h
                     safety_margin_h = getattr(self, "queue_timeout_mask_safety_margin_h", 0.5)
                     max_wait_time_h = getattr(station, "max_wait_time_h", 4.0)
+                    if getattr(self, "_debug_step_count", 0) < 5:
+                        print(
+                            f"[mask_debug] station={i} queue_len={len(station.queue)} "
+                            f"incoming={incoming} est_queue_h={est_queue_h:.3f} "
+                            f"est_trip_h={metrics['trip_time_h']:.3f} est_total_h={est_total_h:.3f} "
+                            f"threshold={max_wait_time_h - safety_margin_h:.3f} "
+                            f"mask_to_false={est_total_h >= max_wait_time_h - safety_margin_h}"
+                        )
 
                     if est_total_h >= max_wait_time_h - safety_margin_h:
                         mask[0, i] = False
@@ -561,6 +570,7 @@ class TrafficPowerEnv:
 
     def step(self, actions):
         self.time_step += 1
+        self._debug_step_count = getattr(self, "_debug_step_count", 0) + 1
         self.edge_step_counts = {}
         self.edge_peak_counts = {}
         self._path_cache_step: dict = {}
