@@ -292,7 +292,7 @@ class FederatedTrainer:
         graphml_file = getattr(self.cfg, "graphml_file", LOCAL_GRAPHML)
         station_node_ids = self._resolve_station_nodes()
         if graphml_file is not None:
-            return RealTrafficEnv(
+            env = RealTrafficEnv(
                 graphml_file=graphml_file,
                 num_stations=self.cfg.num_stations,
                 num_evs=self.cfg.num_evs,
@@ -300,8 +300,12 @@ class FederatedTrainer:
                 seed=seed,
                 station_node_ids=station_node_ids,
             )
+            env.enable_queue_timeout_mask = True
+            env.queue_timeout_mask_safety_margin_h = 3.5
+            env.queue_timeout_mask_capacity_ratio = 1.5
+            return env
         if OFFLINE_FALLBACK:
-            return RealTrafficEnv(
+            env = RealTrafficEnv(
                 place=PLACE,
                 num_stations=self.cfg.num_stations,
                 num_evs=self.cfg.num_evs,
@@ -309,13 +313,21 @@ class FederatedTrainer:
                 seed=seed,
                 offline=True,
             )
-        return RealTrafficEnv(
+            env.enable_queue_timeout_mask = True
+            env.queue_timeout_mask_safety_margin_h = 3.5
+            env.queue_timeout_mask_capacity_ratio = 1.5
+            return env
+        env = RealTrafficEnv(
             place=PLACE,
             num_stations=self.cfg.num_stations,
             num_evs=self.cfg.num_evs,
             max_nodes=self.cfg.max_nodes,
             seed=seed,
         )
+        env.enable_queue_timeout_mask = True
+        env.queue_timeout_mask_safety_margin_h = 3.5
+        env.queue_timeout_mask_capacity_ratio = 1.5
+        return env
 
     def _run_episode(self, episode_idx):
         stats = {
