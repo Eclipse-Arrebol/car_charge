@@ -52,6 +52,7 @@ def _build_train_cfg():
         "checkpoint_interval",
     ]:
         setattr(cfg, attr, getattr(scale, attr))
+    cfg.enable_queue_timeout_mask = False  # baseline 不用 mask
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS

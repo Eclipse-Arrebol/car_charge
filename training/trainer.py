@@ -300,9 +300,9 @@ class FederatedTrainer:
                 seed=seed,
                 station_node_ids=station_node_ids,
             )
-            env.enable_queue_timeout_mask = True
-            env.queue_timeout_mask_safety_margin_h = 3.5
-            env.queue_timeout_mask_capacity_ratio = 1.5
+            env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
+            env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
+            env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
             return env
         if OFFLINE_FALLBACK:
             env = RealTrafficEnv(
@@ -313,9 +313,9 @@ class FederatedTrainer:
                 seed=seed,
                 offline=True,
             )
-            env.enable_queue_timeout_mask = True
-            env.queue_timeout_mask_safety_margin_h = 3.5
-            env.queue_timeout_mask_capacity_ratio = 1.5
+            env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
+            env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
+            env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
             return env
         env = RealTrafficEnv(
             place=PLACE,
@@ -324,9 +324,9 @@ class FederatedTrainer:
             max_nodes=self.cfg.max_nodes,
             seed=seed,
         )
-        env.enable_queue_timeout_mask = True
-        env.queue_timeout_mask_safety_margin_h = 3.5
-        env.queue_timeout_mask_capacity_ratio = 1.5
+        env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
+        env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
+        env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
         return env
 
     def _run_episode(self, episode_idx):
