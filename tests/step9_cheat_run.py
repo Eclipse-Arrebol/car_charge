@@ -28,7 +28,7 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-BASELINE_CHECKPOINT = "step8_baseline_50ep_seed0"
+CHEAT_CHECKPOINT = "step9_cheat_50ep_seed0"
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -52,16 +52,17 @@ def _build_train_cfg():
         "checkpoint_interval",
     ]:
         setattr(cfg, attr, getattr(scale, attr))
-    cfg.enable_queue_timeout_mask = False  # baseline 不用 mask
+    cfg.enable_queue_timeout_mask = False  # cheat 不用 mask
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
     cfg.epsilon_final = 0.05
-    cfg.reward_mode = "baseline"
+    cfg.reward_mode = "cheat"
+    cfg.cheat_grid_cost_scale = 5.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step8_baseline_50ep_1200step"
-    cfg.output_dir = os.path.join("runs", BASELINE_CHECKPOINT)
-    cfg.checkpoint_basename = BASELINE_CHECKPOINT
+    cfg.train_scale = "step9_cheat_50ep_1200step"
+    cfg.output_dir = os.path.join("runs", CHEAT_CHECKPOINT)
+    cfg.checkpoint_basename = CHEAT_CHECKPOINT
     return cfg
 
 
@@ -89,9 +90,9 @@ def _build_env(cfg, seed):
     return env
 
 
-def train_baseline():
+def train_cheat():
     cfg = _build_train_cfg()
-    print("\n=== Train baseline ===")
+    print("\n=== Train cheat ===")
     run_training_real(
         num_evs=cfg.num_evs,
         episodes=cfg.episodes,
@@ -174,7 +175,7 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "baseline": _evaluate_checkpoint(BASELINE_CHECKPOINT, eval_seed),
+        "cheat": _evaluate_checkpoint(CHEAT_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -184,13 +185,13 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Baseline (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Cheat (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        val = float(reports["baseline"][key])
+        val = float(reports["cheat"][key])
         print(f"{key:<40} {val:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step8_baseline_eval.json")
+    path = os.path.join(RUN_ROOT, "step9_cheat_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -201,7 +202,8 @@ def run_eval():
                     "epsilon_final": 0.05,
                     "episodes": TRAIN_EPISODES,
                     "steps_per_episode": TRAIN_STEPS,
-                    "reward_mode": "baseline",
+                    "reward_mode": "cheat",
+                    "cheat_grid_cost_scale": 5.0,
                     "queue_timeout_mask": False,
                 },
                 "reports": reports,
@@ -214,17 +216,17 @@ def run_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Step 8 baseline runner")
+    parser = argparse.ArgumentParser(description="Step 9 cheat runner")
     parser.add_argument(
         "--mode",
         choices=["train", "eval"],
         required=True,
-        help="train: train baseline checkpoint; eval: evaluate baseline checkpoint",
+        help="train: train cheat checkpoint; eval: evaluate cheat checkpoint",
     )
     args = parser.parse_args()
 
     if args.mode == "train":
-        train_baseline()
+        train_cheat()
         return
     if args.mode == "eval":
         run_eval()

@@ -28,7 +28,7 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-BASELINE_CHECKPOINT = "step8_baseline_50ep_seed0"
+MASK_CHECKPOINT = "step11_mask_50ep_seed0"
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -52,16 +52,22 @@ def _build_train_cfg():
         "checkpoint_interval",
     ]:
         setattr(cfg, attr, getattr(scale, attr))
-    cfg.enable_queue_timeout_mask = False  # baseline 不用 mask
+    cfg.enable_queue_timeout_mask = True
+    cfg.queue_timeout_mask_safety_margin_h = 3.5
+    cfg.queue_timeout_mask_capacity_ratio = 1.5
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
     cfg.epsilon_final = 0.05
-    cfg.reward_mode = "baseline"
+    cfg.reward_mode = "voltage"
+    cfg.voltage_user_weight = 0.3
+    cfg.voltage_grid_weight = 0.7
+    cfg.voltage_grid_norm_scale = 5.0
+    cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step8_baseline_50ep_1200step"
-    cfg.output_dir = os.path.join("runs", BASELINE_CHECKPOINT)
-    cfg.checkpoint_basename = BASELINE_CHECKPOINT
+    cfg.train_scale = "step11_mask_50ep_1200step"
+    cfg.output_dir = os.path.join("runs", MASK_CHECKPOINT)
+    cfg.checkpoint_basename = MASK_CHECKPOINT
     return cfg
 
 
@@ -85,13 +91,15 @@ def _build_env(cfg, seed):
         station_node_ids=station_node_ids,
         respawn_after_full_charge=getattr(cfg, "respawn_after_full_charge", True),
     )
-    env.enable_queue_timeout_mask = False
+    env.enable_queue_timeout_mask = True
+    env.queue_timeout_mask_safety_margin_h = 3.5
+    env.queue_timeout_mask_capacity_ratio = 1.5
     return env
 
 
-def train_baseline():
+def train_mask():
     cfg = _build_train_cfg()
-    print("\n=== Train baseline ===")
+    print("\n=== Train mask ===")
     run_training_real(
         num_evs=cfg.num_evs,
         episodes=cfg.episodes,
@@ -174,7 +182,7 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "baseline": _evaluate_checkpoint(BASELINE_CHECKPOINT, eval_seed),
+        "mask": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -184,13 +192,13 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Baseline (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Mask (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        val = float(reports["baseline"][key])
+        val = float(reports["mask"][key])
         print(f"{key:<40} {val:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step8_baseline_eval.json")
+    path = os.path.join(RUN_ROOT, "step11_mask_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -201,8 +209,14 @@ def run_eval():
                     "epsilon_final": 0.05,
                     "episodes": TRAIN_EPISODES,
                     "steps_per_episode": TRAIN_STEPS,
-                    "reward_mode": "baseline",
-                    "queue_timeout_mask": False,
+                    "reward_mode": "voltage",
+                    "voltage_user_weight": 0.3,
+                    "voltage_grid_weight": 0.7,
+                    "voltage_grid_norm_scale": 5.0,
+                    "voltage_abandon_penalty": 0.0,
+                    "queue_timeout_mask": True,
+                    "queue_timeout_mask_safety_margin_h": 3.5,
+                    "queue_timeout_mask_capacity_ratio": 1.5,
                 },
                 "reports": reports,
             },
@@ -214,17 +228,17 @@ def run_eval():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Step 8 baseline runner")
+    parser = argparse.ArgumentParser(description="Step 11 mask runner")
     parser.add_argument(
         "--mode",
         choices=["train", "eval"],
         required=True,
-        help="train: train baseline checkpoint; eval: evaluate baseline checkpoint",
+        help="train: train mask checkpoint; eval: evaluate mask checkpoint",
     )
     args = parser.parse_args()
 
     if args.mode == "train":
-        train_baseline()
+        train_mask()
         return
     if args.mode == "eval":
         run_eval()
