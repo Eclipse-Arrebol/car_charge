@@ -664,6 +664,13 @@ class TrafficPowerEnv:
                     ev.abandoned_charge_count += 1
                     ev.just_abandoned_this_step = True
                     abandoned_this_step.append(ev.id)
+                    # 抓住 abandon 真实代价(reset 之前,因为 reset 会清零 wait_time_h)
+                    if not hasattr(self, '_abandon_real_costs'):
+                        self._abandon_real_costs = {}
+                    self._abandon_real_costs[ev.id] = {
+                        "actual_wait_h": ev.wait_time_h,
+                        "actual_trip_h": ev.travel_time_h,
+                    }
                     self._reset_ev_charging_attempt(ev)
 
             elif ev.status == "CHARGING":
@@ -724,6 +731,7 @@ class TrafficPowerEnv:
             "price_noise": self.price_noise,
             "step_duration_h": self.step_duration_h,
             "abandoned_this_step": abandoned_this_step,
+            "abandon_real_costs": getattr(self, '_abandon_real_costs', {}),
             "decision_costs": decision_metrics,
             "active_edge_flows": dict(self.edge_active_counts),
             "active_edge_vehicle_count": int(sum(self.edge_active_counts.values())),
@@ -741,6 +749,7 @@ class TrafficPowerEnv:
             },
         }
 
+        self._abandon_real_costs = {}
         return self.get_graph_state(), reward, False, info
 
     def render(self):

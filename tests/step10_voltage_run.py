@@ -28,7 +28,8 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-VOLTAGE_CHECKPOINT = "step10_voltage_50ep_seed0"
+VOLTAGE_CHECKPOINT_OLD = "step10_voltage_50ep_seed0"  # buggy 版本,保留作论文反例
+VOLTAGE_CHECKPOINT = "step12_voltage_fixed_50ep_seed0"  # bug 修复后
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -63,7 +64,7 @@ def _build_train_cfg():
     cfg.voltage_grid_norm_scale = 5.0
     cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step10_voltage_50ep_1200step"
+    cfg.train_scale = "step12_voltage_fixed_50ep_1200step"
     cfg.output_dir = os.path.join("runs", VOLTAGE_CHECKPOINT)
     cfg.checkpoint_basename = VOLTAGE_CHECKPOINT
     return cfg
@@ -178,7 +179,8 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "voltage": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
+        "voltage_buggy": _evaluate_checkpoint(VOLTAGE_CHECKPOINT_OLD, eval_seed),
+        "voltage_fixed": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -188,13 +190,14 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Voltage (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Voltage buggy vs fixed (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        val = float(reports["voltage"][key])
-        print(f"{key:<40} {val:>12.4f}")
+        buggy = float(reports["voltage_buggy"][key])
+        fixed = float(reports["voltage_fixed"][key])
+        print(f"{key:<40} buggy={buggy:>12.4f} fixed={fixed:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step10_voltage_eval.json")
+    path = os.path.join(RUN_ROOT, "step12_voltage_fixed_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {

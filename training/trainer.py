@@ -165,19 +165,6 @@ class FederatedTrainer:
             voltage_grid_weight = float(
                 getattr(self.cfg, "voltage_grid_weight", DEFAULT_VOLTAGE_GRID_WEIGHT)
             )
-            voltage_abandon_penalty = float(
-                getattr(self.cfg, "voltage_abandon_penalty", DEFAULT_VOLTAGE_ABANDON_PENALTY)
-            )
-            if ev is not None and getattr(ev, "just_abandoned_this_step", False):
-                per_ev_r = -voltage_abandon_penalty
-                clipped = max(-5.0, min(0.0, per_ev_r))
-                return {
-                    "reward": clipped,
-                    "user_norm": user_norm,
-                    "voltage_excursion": 0.0,
-                    "grid_cost_norm": 0.0,
-                    "weighted_sum": -clipped,
-                }
             pred = {}
             if ev is not None:
                 try:
@@ -406,8 +393,11 @@ class FederatedTrainer:
                 t0 = time.perf_counter()
                 if getattr(self.cfg, "reward_mode", DEFAULT_REWARD_MODE) == "voltage":
                     abandon_ids = set(info.get("abandoned_this_step", []))
+                    abandon_real_costs = info.get("abandon_real_costs", {})
                     if abandon_ids:
                         ev_lookup = {ev.id: ev for ev in env.evs}
+                        user_w = float(getattr(self.cfg, "voltage_user_weight", DEFAULT_VOLTAGE_USER_WEIGHT))
+                        grid_w = float(getattr(self.cfg, "voltage_grid_weight", DEFAULT_VOLTAGE_GRID_WEIGHT))
                         for abandoned_id in abandon_ids:
                             abandoned_ev = ev_lookup.get(abandoned_id)
                             if abandoned_ev is None:
@@ -416,22 +406,26 @@ class FederatedTrainer:
                             decision_snap = getattr(abandoned_ev, "_decision_snap", None)
                             if decision_state is None or not decision_snap:
                                 continue
-                            components = self._build_training_reward_components(
-                                env,
-                                decision_snap["action"],
-                                decision_snap.get("metrics", {}),
-                                info,
-                                ev=abandoned_ev,
-                            )
+                            
+                            # 用真实代价算 abandon reward(不走 _build_training_reward_components)
+                            real_costs = abandon_real_costs.get(abandoned_id, {})
+                            actual_wait_h = float(real_costs.get("actual_wait_h", 4.0))
+                            actual_trip_h = float(real_costs.get("actual_trip_h", 0.0))
+                            real_user_norm = (actual_wait_h + actual_trip_h) / 2.0
+                            real_grid_norm = 0.0  # abandon 没充电,grid 信号空
+                            weighted = user_w * real_user_norm + grid_w * real_grid_norm
+                            abandon_reward = -weighted
+                            abandon_reward = max(-3.0, min(0.0, abandon_reward))
+                            
                             next_ev_state = env.get_graph_state_for_ev(abandoned_ev)
                             client.store_transition(
                                 decision_state,
                                 decision_snap["action"],
-                                components["reward"],
+                                abandon_reward,
                                 next_ev_state,
                                 action_mask=decision_snap.get("action_mask"),
                             )
-                            stats["total_mixed_reward"] += components["reward"]
+                            stats["total_mixed_reward"] += abandon_reward
                             stats["total_decisions"] += 1
                             abandoned_ev._decision_state = None
                             abandoned_ev._decision_snap = None
