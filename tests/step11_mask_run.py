@@ -54,8 +54,8 @@ def _build_train_cfg():
     ]:
         setattr(cfg, attr, getattr(scale, attr))
     cfg.enable_queue_timeout_mask = True
-    cfg.queue_timeout_mask_safety_margin_h = 1.0
-    cfg.queue_timeout_mask_capacity_ratio = 2.0
+    cfg.queue_timeout_mask_safety_margin_h = 2.0
+    cfg.queue_timeout_mask_capacity_ratio = 1.75
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
@@ -93,8 +93,8 @@ def _build_env(cfg, seed):
         respawn_after_full_charge=getattr(cfg, "respawn_after_full_charge", True),
     )
     env.enable_queue_timeout_mask = True
-    env.queue_timeout_mask_safety_margin_h = 1.0
-    env.queue_timeout_mask_capacity_ratio = 2.0
+    env.queue_timeout_mask_safety_margin_h = 2.0
+    env.queue_timeout_mask_capacity_ratio = 1.75
     return env
 
 
@@ -221,8 +221,8 @@ def run_eval():
                     "voltage_grid_norm_scale": 5.0,
                     "voltage_abandon_penalty": 0.0,
                     "queue_timeout_mask": True,
-                    "queue_timeout_mask_safety_margin_h": 1.0,
-                    "queue_timeout_mask_capacity_ratio": 2.0,
+                    "queue_timeout_mask_safety_margin_h": 2.0,
+                    "queue_timeout_mask_capacity_ratio": 1.75,
                 },
                 "reports": reports,
             },
