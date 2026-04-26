@@ -28,7 +28,8 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-MASK_CHECKPOINT = "step11_mask_50ep_seed0"
+MASK_CHECKPOINT_OLD = "step11_mask_50ep_seed0"  # buggy 版本(用 buggy trainer 训练),保留作论文参考
+MASK_CHECKPOINT = "step13_mask_fixed_50ep_seed0"  # bug 修复后
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -65,7 +66,7 @@ def _build_train_cfg():
     cfg.voltage_grid_norm_scale = 5.0
     cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step11_mask_50ep_1200step"
+    cfg.train_scale = "step13_mask_fixed_50ep_1200step"
     cfg.output_dir = os.path.join("runs", MASK_CHECKPOINT)
     cfg.checkpoint_basename = MASK_CHECKPOINT
     return cfg
@@ -182,7 +183,8 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "mask": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
+        "mask_buggy": _evaluate_checkpoint(MASK_CHECKPOINT_OLD, eval_seed),
+        "mask_fixed": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -192,13 +194,14 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Mask (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Mask buggy vs fixed (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        val = float(reports["mask"][key])
-        print(f"{key:<40} {val:>12.4f}")
+        buggy = float(reports["mask_buggy"][key])
+        fixed = float(reports["mask_fixed"][key])
+        print(f"{key:<40} buggy={buggy:>12.4f} fixed={fixed:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step11_mask_eval.json")
+    path = os.path.join(RUN_ROOT, "step13_mask_fixed_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
