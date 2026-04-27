@@ -28,8 +28,8 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-MASK_CHECKPOINT_OLD = "step11_mask_50ep_seed0"  # buggy 版本(用 buggy trainer 训练),保留作论文参考
-MASK_CHECKPOINT = "step13_mask_fixed_50ep_seed0"  # bug 修复后
+MASK_CHECKPOINT_OLD = "step13_mask_fixed_50ep_seed0"  # user=0.3, grid=0.7
+MASK_CHECKPOINT = "step15_mask_new_50ep_seed0"  # user=0.7, grid=0.3
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -61,12 +61,12 @@ def _build_train_cfg():
     cfg.steps_per_episode = TRAIN_STEPS
     cfg.epsilon_final = 0.05
     cfg.reward_mode = "voltage"
-    cfg.voltage_user_weight = 0.3
-    cfg.voltage_grid_weight = 0.7
+    cfg.voltage_user_weight = 0.7
+    cfg.voltage_grid_weight = 0.3
     cfg.voltage_grid_norm_scale = 5.0
     cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step13_mask_fixed_50ep_1200step"
+    cfg.train_scale = "step15_mask_new_50ep_1200step"
     cfg.output_dir = os.path.join("runs", MASK_CHECKPOINT)
     cfg.checkpoint_basename = MASK_CHECKPOINT
     return cfg
@@ -123,6 +123,7 @@ def train_mask():
         voltage_user_weight=cfg.voltage_user_weight,
         voltage_grid_weight=cfg.voltage_grid_weight,
         voltage_grid_norm_scale=cfg.voltage_grid_norm_scale,
+        voltage_abandon_penalty=cfg.voltage_abandon_penalty,
         enable_queue_timeout_mask=cfg.enable_queue_timeout_mask,
         queue_timeout_mask_safety_margin_h=cfg.queue_timeout_mask_safety_margin_h,
         queue_timeout_mask_capacity_ratio=cfg.queue_timeout_mask_capacity_ratio,
@@ -186,8 +187,8 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "mask_buggy": _evaluate_checkpoint(MASK_CHECKPOINT_OLD, eval_seed),
-        "mask_fixed": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
+        "mask_old": _evaluate_checkpoint(MASK_CHECKPOINT_OLD, eval_seed),
+        "mask_new": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -197,14 +198,14 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Mask buggy vs fixed (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Mask old vs new (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        buggy = float(reports["mask_buggy"][key])
-        fixed = float(reports["mask_fixed"][key])
-        print(f"{key:<40} buggy={buggy:>12.4f} fixed={fixed:>12.4f}")
+        old = float(reports["mask_old"][key])
+        new = float(reports["mask_new"][key])
+        print(f"{key:<40} old={old:>12.4f} new={new:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step13_mask_fixed_eval.json")
+    path = os.path.join(RUN_ROOT, "step15_mask_new_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -216,8 +217,8 @@ def run_eval():
                     "episodes": TRAIN_EPISODES,
                     "steps_per_episode": TRAIN_STEPS,
                     "reward_mode": "voltage",
-                    "voltage_user_weight": 0.3,
-                    "voltage_grid_weight": 0.7,
+                    "voltage_user_weight": 0.7,
+                    "voltage_grid_weight": 0.3,
                     "voltage_grid_norm_scale": 5.0,
                     "voltage_abandon_penalty": 0.0,
                     "queue_timeout_mask": True,

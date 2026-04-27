@@ -28,8 +28,8 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-VOLTAGE_CHECKPOINT_OLD = "step10_voltage_50ep_seed0"  # buggy 版本,保留作论文反例
-VOLTAGE_CHECKPOINT = "step12_voltage_fixed_50ep_seed0"  # bug 修复后
+VOLTAGE_CHECKPOINT_OLD = "step12_voltage_fixed_50ep_seed0"  # user=0.3, grid=0.7
+VOLTAGE_CHECKPOINT = "step14_voltage_new_50ep_seed0"  # user=0.7, grid=0.3
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -59,12 +59,12 @@ def _build_train_cfg():
     cfg.steps_per_episode = TRAIN_STEPS
     cfg.epsilon_final = 0.05
     cfg.reward_mode = "voltage"
-    cfg.voltage_user_weight = 0.3
-    cfg.voltage_grid_weight = 0.7
+    cfg.voltage_user_weight = 0.7
+    cfg.voltage_grid_weight = 0.3
     cfg.voltage_grid_norm_scale = 5.0
     cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step12_voltage_fixed_50ep_1200step"
+    cfg.train_scale = "step14_voltage_new_50ep_1200step"
     cfg.output_dir = os.path.join("runs", VOLTAGE_CHECKPOINT)
     cfg.checkpoint_basename = VOLTAGE_CHECKPOINT
     return cfg
@@ -119,6 +119,7 @@ def train_voltage():
         voltage_user_weight=cfg.voltage_user_weight,
         voltage_grid_weight=cfg.voltage_grid_weight,
         voltage_grid_norm_scale=cfg.voltage_grid_norm_scale,
+        voltage_abandon_penalty=cfg.voltage_abandon_penalty,
         graphml_file=cfg.graphml_file,
         station_config_file=cfg.station_config_file,
         station_id_key=cfg.station_id_key,
@@ -179,8 +180,8 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "voltage_buggy": _evaluate_checkpoint(VOLTAGE_CHECKPOINT_OLD, eval_seed),
-        "voltage_fixed": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
+        "voltage_old": _evaluate_checkpoint(VOLTAGE_CHECKPOINT_OLD, eval_seed),
+        "voltage_new": _evaluate_checkpoint(VOLTAGE_CHECKPOINT, eval_seed),
     }
     rows = [
         "abandoned_evs",
@@ -190,14 +191,14 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Voltage buggy vs fixed (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Voltage old vs new (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        buggy = float(reports["voltage_buggy"][key])
-        fixed = float(reports["voltage_fixed"][key])
-        print(f"{key:<40} buggy={buggy:>12.4f} fixed={fixed:>12.4f}")
+        old = float(reports["voltage_old"][key])
+        new = float(reports["voltage_new"][key])
+        print(f"{key:<40} old={old:>12.4f} new={new:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step12_voltage_fixed_eval.json")
+    path = os.path.join(RUN_ROOT, "step14_voltage_new_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -209,8 +210,8 @@ def run_eval():
                     "episodes": TRAIN_EPISODES,
                     "steps_per_episode": TRAIN_STEPS,
                     "reward_mode": "voltage",
-                    "voltage_user_weight": 0.3,
-                    "voltage_grid_weight": 0.7,
+                    "voltage_user_weight": 0.7,
+                    "voltage_grid_weight": 0.3,
                     "voltage_grid_norm_scale": 5.0,
                     "voltage_abandon_penalty": 0.0,
                     "queue_timeout_mask": False,

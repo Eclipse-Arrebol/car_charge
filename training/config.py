@@ -56,8 +56,8 @@ class TrainConfig:
     mixed_reward_max: float = 5.0
     reward_mode: str = "baseline"
     cheat_grid_cost_scale: float = 1.0
-    voltage_user_weight: float = 0.3
-    voltage_grid_weight: float = 0.7
+    voltage_user_weight: float = 0.7
+    voltage_grid_weight: float = 0.3
     voltage_grid_norm_scale: float = 1.0
     voltage_abandon_penalty: float = 0.0
 
