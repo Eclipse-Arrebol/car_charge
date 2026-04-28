@@ -28,8 +28,8 @@ EVAL_STEPS = 600
 EXPERIMENT_SEED = 0
 RUN_ROOT = os.path.join(PROJECT_ROOT, "runs")
 CHECKPOINT_DIR = os.path.join(PROJECT_ROOT, "checkpoints")
-MASK_CHECKPOINT_OLD = "step15_mask_new_50ep_seed0"  # user=0.7, grid=0.3
-MASK_CHECKPOINT = "step16_mask_time_50ep_seed0"  # total-time mask, user=0.7, grid=0.3
+MASK_CHECKPOINT_OLD = "step16_mask_time_50ep_seed0"  # total-time mask, user=0.7, grid=0.3
+MASK_CHECKPOINT = "step17_mask_time_1h"  # total-time mask 1h, user=0.7, grid=0.3
 
 
 def _episode_seeds(base_seed: int, episodes: int):
@@ -56,7 +56,7 @@ def _build_train_cfg():
     cfg.enable_queue_timeout_mask = True
     cfg.queue_timeout_mask_safety_margin_h = 2.0
     cfg.queue_timeout_mask_capacity_ratio = 1.75
-    cfg.total_time_mask_threshold_h = 2.0
+    cfg.total_time_mask_threshold_h = 1.0
     cfg.num_evs = TRAIN_NUM_EVS
     cfg.episodes = TRAIN_EPISODES
     cfg.steps_per_episode = TRAIN_STEPS
@@ -67,7 +67,7 @@ def _build_train_cfg():
     cfg.voltage_grid_norm_scale = 5.0
     cfg.voltage_abandon_penalty = 0.0
     cfg.base_seed = EXPERIMENT_SEED
-    cfg.train_scale = "step16_mask_time_50ep_1200step"
+    cfg.train_scale = "step17_mask_time_1h_50ep_1200step"
     cfg.output_dir = os.path.join("runs", MASK_CHECKPOINT)
     cfg.checkpoint_basename = MASK_CHECKPOINT
     return cfg
@@ -96,7 +96,7 @@ def _build_env(cfg, seed):
     env.enable_queue_timeout_mask = True
     env.queue_timeout_mask_safety_margin_h = 2.0
     env.queue_timeout_mask_capacity_ratio = 1.75
-    env.total_time_mask_threshold_h = 2.0
+    env.total_time_mask_threshold_h = 1.0
     return env
 
 
@@ -200,13 +200,13 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Mask time (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Mask time 1h (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
         new = float(reports["mask_new"][key])
         print(f"{key:<40} {new:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
-    path = os.path.join(RUN_ROOT, "step16_mask_time_eval.json")
+    path = os.path.join(RUN_ROOT, "step17_mask_time_1h_eval.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
             {
@@ -225,7 +225,7 @@ def run_eval():
                     "queue_timeout_mask": True,
                     "queue_timeout_mask_safety_margin_h": 2.0,
                     "queue_timeout_mask_capacity_ratio": 1.75,
-                    "total_time_mask_threshold_h": 2.0,
+                    "total_time_mask_threshold_h": 1.0,
                 },
                 "reports": reports,
             },

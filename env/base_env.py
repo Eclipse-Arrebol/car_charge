@@ -10,7 +10,7 @@ from env.charging_station import ChargingStation
 
 
 NODE_FEATURE_DIM = 18
-TOTAL_TIME_MASK_THRESHOLD_H = 2.0
+TOTAL_TIME_MASK_THRESHOLD_H = 1.0
 
 
 class TrafficPowerEnv:
