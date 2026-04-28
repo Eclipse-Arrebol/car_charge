@@ -290,6 +290,7 @@ class FederatedTrainer:
             env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
             env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
             env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
+            env.total_time_mask_threshold_h = getattr(self.cfg, "total_time_mask_threshold_h", 2.0)
             return env
         if OFFLINE_FALLBACK:
             env = RealTrafficEnv(
@@ -303,6 +304,7 @@ class FederatedTrainer:
             env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
             env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
             env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
+            env.total_time_mask_threshold_h = getattr(self.cfg, "total_time_mask_threshold_h", 2.0)
             return env
         env = RealTrafficEnv(
             place=PLACE,
@@ -314,6 +316,7 @@ class FederatedTrainer:
         env.enable_queue_timeout_mask = getattr(self.cfg, "enable_queue_timeout_mask", False)
         env.queue_timeout_mask_safety_margin_h = getattr(self.cfg, "queue_timeout_mask_safety_margin_h", 3.5)
         env.queue_timeout_mask_capacity_ratio = getattr(self.cfg, "queue_timeout_mask_capacity_ratio", 1.5)
+        env.total_time_mask_threshold_h = getattr(self.cfg, "total_time_mask_threshold_h", 2.0)
         return env
 
     def _run_episode(self, episode_idx):
@@ -678,6 +681,7 @@ def run_training_real(
     enable_queue_timeout_mask=False,
     queue_timeout_mask_safety_margin_h=3.5,
     queue_timeout_mask_capacity_ratio=1.5,
+    total_time_mask_threshold_h=2.0,
     graphml_file=LOCAL_GRAPHML,
     station_config_file=None,
     station_id_key="l0_station_nodes",
@@ -710,6 +714,7 @@ def run_training_real(
         enable_queue_timeout_mask=enable_queue_timeout_mask,
         queue_timeout_mask_safety_margin_h=queue_timeout_mask_safety_margin_h,
         queue_timeout_mask_capacity_ratio=queue_timeout_mask_capacity_ratio,
+        total_time_mask_threshold_h=total_time_mask_threshold_h,
         proximal_mu=proximal_mu,
         use_dp=use_dp,
         dp_noise_multiplier=dp_noise_multiplier,

@@ -49,6 +49,7 @@ class TrainConfig:
     enable_queue_timeout_mask: bool = False        # 默认关闭，需要的脚本显式开
     queue_timeout_mask_safety_margin_h: float = 3.5
     queue_timeout_mask_capacity_ratio: float = 1.5
+    total_time_mask_threshold_h: float = 2.0
 
     # ── 奖励归一化 ────────────────────────────────────────────────────
     mixed_reward_scale: float = 50.0

@@ -10,6 +10,7 @@ from env.charging_station import ChargingStation
 
 
 NODE_FEATURE_DIM = 18
+TOTAL_TIME_MASK_THRESHOLD_H = 2.0
 
 
 class TrafficPowerEnv:
@@ -514,29 +515,22 @@ class TrafficPowerEnv:
                 continue
 
             try:
-                metrics = self._estimate_ev_station_metrics(ev, station)
+                metrics = self._estimate_ev_station_metrics(
+                    ev, station, pending_counts=pending_counts
+                )
                 soc_needed = metrics["trip_dist_km"] * ev.drive_kwh_per_km / max(1e-6, ev.battery_capacity_kwh) * 100.0 + 2.0
                 if ev.soc < soc_needed or metrics["trip_time_h"] >= 24.0:
                     mask[0, i] = False
                     continue
                 if enable_timeout_mask:
-                    incoming = 0 if pending_counts is None else pending_counts.get(station.id, 0)
-                    # 新增:硬容量比例 mask(每个充电桩平均被挤 1.5 辆以上则拒绝)
-                    load_ratio = (
-                        len(station.queue) + len(station.connected_evs) + incoming
-                    ) / max(1, station.num_chargers)
-                    capacity_threshold = getattr(self, "queue_timeout_mask_capacity_ratio", 1.5)
-
-                    if load_ratio > capacity_threshold:
-                        mask[0, i] = False
-                        continue
-
-                    # 原有 timeout 判断保持
-                    est_queue_h = station.estimate_queue_wait_hours(incoming_count=incoming)
-                    est_total_h = metrics["trip_time_h"] + est_queue_h
-                    safety_margin_h = getattr(self, "queue_timeout_mask_safety_margin_h", 0.5)
-                    max_wait_time_h = getattr(station, "max_wait_time_h", 4.0)
-                    if est_total_h >= max_wait_time_h - safety_margin_h:
+                    total_time_h = metrics["trip_time_h"] + metrics["queue_time_h"]
+                    threshold_h = getattr(
+                        self,
+                        "total_time_mask_threshold_h",
+                        TOTAL_TIME_MASK_THRESHOLD_H,
+                    )
+                    should_mask = total_time_h > threshold_h
+                    if should_mask:
                         mask[0, i] = False
                         continue
             except nx.NetworkXNoPath:
