@@ -187,7 +187,6 @@ def _evaluate_checkpoint(model_basename: str, eval_seed: int):
 def run_eval():
     eval_seed = EXPERIMENT_SEED
     reports = {
-        "mask_old": _evaluate_checkpoint(MASK_CHECKPOINT_OLD, eval_seed),
         "mask_new": _evaluate_checkpoint(MASK_CHECKPOINT, eval_seed),
     }
     rows = [
@@ -198,11 +197,10 @@ def run_eval():
         "queue_time_h_mean",
         "distribution_network_cost_cny",
     ]
-    print("\n=== Mask old vs new (epsilon_final=0.05, 50 ep × 1200 step) ===")
+    print("\n=== Mask new (epsilon_final=0.05, 50 ep × 1200 step) ===")
     for key in rows:
-        old = float(reports["mask_old"][key])
         new = float(reports["mask_new"][key])
-        print(f"{key:<40} old={old:>12.4f} new={new:>12.4f}")
+        print(f"{key:<40} {new:>12.4f}")
 
     os.makedirs(RUN_ROOT, exist_ok=True)
     path = os.path.join(RUN_ROOT, "step15_mask_new_eval.json")
