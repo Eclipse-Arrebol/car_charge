@@ -82,8 +82,8 @@ def load_tntp_network(
     for node, (x, y) in pos_layout.items():
         lon = 114.2 + (x + 1) / 2 * 0.3
         lat = 30.4 + (y + 1) / 2 * 0.3
-        largest.nodes[node]["x"] = lon
-        largest.nodes[node]["y"] = lat
+        largest.nodes[node]["x"] = str(lon)
+        largest.nodes[node]["y"] = str(lat)
         positions[node] = (lon, lat)
 
     print(f"[TNTP] nodes={largest.number_of_nodes()}, edges={largest.number_of_edges()}, "
