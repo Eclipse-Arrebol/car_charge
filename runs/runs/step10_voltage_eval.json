@@ -1,0 +1,39 @@
+{
+  "seed": 0,
+  "eval_num_evs": 40,
+  "eval_episodes": 10,
+  "config": {
+    "epsilon_final": 0.05,
+    "episodes": 50,
+    "steps_per_episode": 1200,
+    "reward_mode": "voltage",
+    "voltage_user_weight": 0.3,
+    "voltage_grid_weight": 0.7,
+    "voltage_grid_norm_scale": 5.0,
+    "voltage_abandon_penalty": 0.0,
+    "queue_timeout_mask": false
+  },
+  "reports": {
+    "voltage": {
+      "travel_time_cost_per_veh": 9.615684120938397,
+      "charge_time_cost_per_veh": 452.59999999999945,
+      "wait_time_cost_per_veh": 87.8375,
+      "charging_fee_per_veh": 185.11247328324188,
+      "total_charging_cost_per_veh": 735.1656574041797,
+      "avg_wait_time_min": 244.2244676919093,
+      "evs_in_line": 1.1711666666666667,
+      "end_evs_in_line": 0.0,
+      "started_charge_sessions": 160.0,
+      "completed_charge_sessions": 160.0,
+      "total_energy_charged_kwh": 6926.18550866583,
+      "abandoned_evs": 1.2,
+      "incomplete_evs": 0.0,
+      "distribution_network_cost_cny": 2553.159,
+      "accumulated_voltage_excursion_pu": 22.74504,
+      "total_line_losses_kwh": 20715.70917,
+      "evaluation_steps": 600.0,
+      "queue_time_h_mean": 0.08730661946347033,
+      "trip_time_h_mean": 0.07823668796048959
+    }
+  }
+}

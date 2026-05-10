@@ -1,0 +1,60 @@
+{
+  "seed": 0,
+  "eval_num_evs": 40,
+  "eval_episodes": 10,
+  "config": {
+    "epsilon_final": 0.05,
+    "episodes": 50,
+    "steps_per_episode": 1200,
+    "reward_mode": "voltage",
+    "voltage_user_weight": 0.3,
+    "voltage_grid_weight": 0.7,
+    "voltage_grid_norm_scale": 5.0,
+    "voltage_abandon_penalty": 0.0,
+    "queue_timeout_mask": false
+  },
+  "reports": {
+    "voltage_buggy": {
+      "travel_time_cost_per_veh": 9.637970499089414,
+      "charge_time_cost_per_veh": 454.1999999999995,
+      "wait_time_cost_per_veh": 93.6125,
+      "charging_fee_per_veh": 184.25693329548272,
+      "total_charging_cost_per_veh": 741.7074037945715,
+      "avg_wait_time_min": 247.42154146141212,
+      "evs_in_line": 1.2481666666666666,
+      "end_evs_in_line": 0.0,
+      "started_charge_sessions": 160.0,
+      "completed_charge_sessions": 160.0,
+      "total_energy_charged_kwh": 6922.604749520983,
+      "abandoned_evs": 1.2,
+      "incomplete_evs": 0.0,
+      "distribution_network_cost_cny": 2516.2140000000004,
+      "accumulated_voltage_excursion_pu": 22.49116,
+      "total_line_losses_kwh": 20702.88113,
+      "evaluation_steps": 600.0,
+      "queue_time_h_mean": 0.09923550979935455,
+      "trip_time_h_mean": 0.07911307916777041
+    },
+    "voltage_fixed": {
+      "travel_time_cost_per_veh": 9.777408499265327,
+      "charge_time_cost_per_veh": 455.42499999999944,
+      "wait_time_cost_per_veh": 84.7,
+      "charging_fee_per_veh": 183.33643778298222,
+      "total_charging_cost_per_veh": 733.238846282247,
+      "avg_wait_time_min": 232.32822852846485,
+      "evs_in_line": 1.1293333333333333,
+      "end_evs_in_line": 0.0,
+      "started_charge_sessions": 160.0,
+      "completed_charge_sessions": 160.0,
+      "total_energy_charged_kwh": 6930.121279859259,
+      "abandoned_evs": 0.8,
+      "incomplete_evs": 0.0,
+      "distribution_network_cost_cny": 2517.4620000000004,
+      "accumulated_voltage_excursion_pu": 22.70061,
+      "total_line_losses_kwh": 20714.14546,
+      "evaluation_steps": 600.0,
+      "queue_time_h_mean": 0.07390620191783367,
+      "trip_time_h_mean": 0.08050839362953953
+    }
+  }
+}

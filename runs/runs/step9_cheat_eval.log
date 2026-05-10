@@ -1,0 +1,56 @@
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[load_model] 旧版 checkpoint，缺少 key（使用默认值）: ['station_node_ids']
+模型已加载: /root/car_charge/checkpoints/step9_cheat_50ep_seed0.pth (epsilon=0.050)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+[LocalFile] 正在加载本地路网文件: G_L0_indexed.graphml
+[LocalFile] 原始路网节点: 1582, 边: 2491
+[LocalFile] 精简后节点: 1582, 边: 2491, 充电站: [394, 147, 182, 708, 764, 964, 1496, 200]
+[RealTrafficEnv] nodes=1582, station_nodes=[394, 147, 182, 708, 764, 964, 1496, 200], EVs=40)
+
+=== Cheat (epsilon_final=0.05, 50 ep × 1200 step) ===
+abandoned_evs                                  0.0000
+accumulated_voltage_excursion_pu              25.7404
+total_line_losses_kwh                      20867.5963
+trip_time_h_mean                               0.0475
+queue_time_h_mean                              0.0012
+distribution_network_cost_cny               2641.3020
+
+[Saved] eval json: /root/car_charge/runs/step9_cheat_eval.json

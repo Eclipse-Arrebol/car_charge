@@ -10,7 +10,16 @@
       "Bash(rm -rf results/)",
       "Bash(rm -rf evaluation/results/)",
       "Bash(rm -f download_map.py)",
-      "Bash(rm -rf cache/pycompile_check/)"
+      "Bash(rm -rf cache/pycompile_check/)",
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(dir *.png)",
+      "Bash(findstr \"fixed\")",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(xargs grep:*)",
+      "Bash(dir C:\\\\Users\\\\HP\\\\AppData\\\\Local\\\\Temp\\\\ev_network_output\\\\:*)",
+      "Bash(netsh winhttp:*)"
     ]
   }
 }

@@ -25,7 +25,7 @@
 <key id="d2" for="graph" attr.name="crs" attr.type="string"/>
 <key id="d1" for="graph" attr.name="created_with" attr.type="string"/>
 <key id="d0" for="graph" attr.name="created_date" attr.type="string"/>
-<graph edgedefault="undirected"><data key="d0">2026-04-18 19:29:20</data>
+<graph edgedefault="undirected"><data key="d0">2026-05-07 17:43:13</data>
 <data key="d1">OSMnx 2.0.7</data>
 <data key="d2">epsg:4326</data>
 <data key="d3">True</data>
@@ -8685,7 +8685,7 @@
 <edge source="383272039" target="4464949545" id="0">
   <data key="d10">[466643171, 444347150, 444347151]</data>
   <data key="d22">yes</data>
-  <data key="d11">['secondary', 'trunk_link']</data>
+  <data key="d11">['trunk_link', 'secondary']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">380.9533975313344</data>
@@ -8944,7 +8944,7 @@
 <edge source="445776447" target="2875926931" id="0">
   <data key="d10">[283760961, 974563591, 974563592, 974563593, 428712155, 428712158]</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['4', '2', '6', '3']</data>
+  <data key="d12">['6', '3', '4', '2']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">378.5141309255547</data>
@@ -9049,7 +9049,7 @@
 <edge source="445776541" target="2875926941" id="0">
   <data key="d10">[283760957, 188280310]</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['2', '3']</data>
+  <data key="d12">['3', '2']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">471.21986325238043</data>
@@ -9061,7 +9061,7 @@
 <edge source="445776541" target="5385208452" id="0">
   <data key="d10">[283776693, 974563590]</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['2', '3']</data>
+  <data key="d12">['3', '2']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">387.348600876159</data>
@@ -9076,7 +9076,7 @@
   <data key="d15">False</data>
   <data key="d16">269.8884879285471</data>
   <data key="d22">yes</data>
-  <data key="d12">['5', '2']</data>
+  <data key="d12">['2', '5']</data>
   <data key="d19">LINESTRING (113.3459413 23.0975317, 113.3461019 23.0984367, 113.346092 23.0992973, 113.3460914 23.0993659, 113.3460948 23.0994162, 113.3461075 23.0994604, 113.3461268 23.0995052, 113.3461557 23.0995486, 113.3461861 23.0995861, 113.3462206 23.09962, 113.3462587 23.0996506, 113.3464624 23.09981)</data>
   <data key="d20">2875926907</data>
   <data key="d21">445776541</data>
@@ -9591,7 +9591,7 @@
 <edge source="481355701" target="4434710986" id="0">
   <data key="d10">[415259680, 233337676, 441997992]</data>
   <data key="d11">primary</data>
-  <data key="d13">['东风东路', '黄埔大道西', '中山一立交']</data>
+  <data key="d13">['中山一立交', '黄埔大道西', '东风东路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">906.315133159714</data>
@@ -9697,7 +9697,7 @@
   <data key="d10">[348699281, 283562852, 478204689]</data>
   <data key="d22">viaduct</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['1', '2']</data>
+  <data key="d12">['2', '1']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">220.38219131605015</data>
@@ -9748,7 +9748,7 @@
 <edge source="482703480" target="482703485" id="0">
   <data key="d10">[1122231795, 123630270]</data>
   <data key="d11">motorway</data>
-  <data key="d12">['4', '7']</data>
+  <data key="d12">['7', '4']</data>
   <data key="d18">80</data>
   <data key="d13">华南快速</data>
   <data key="d14">True</data>
@@ -10498,7 +10498,7 @@
   <data key="d10">[451515434, 356939302]</data>
   <data key="d11">secondary</data>
   <data key="d12">2</data>
-  <data key="d13">['滨江东路', '艺洲路']</data>
+  <data key="d13">['艺洲路', '滨江东路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">352.818392799743</data>
@@ -11084,7 +11084,7 @@
   <data key="d10">[118265824, 924398897, 118265801, 120199316]</data>
   <data key="d11">primary</data>
   <data key="d12">2</data>
-  <data key="d13">['先烈中路', '先烈南路']</data>
+  <data key="d13">['先烈南路', '先烈中路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">551.1710742017954</data>
@@ -11946,7 +11946,7 @@
 <edge source="1952510867" target="4546566526" id="0">
   <data key="d10">[102596669, 248284676, 923953845]</data>
   <data key="d11">secondary</data>
-  <data key="d13">['新中轴隧道', '临江大道']</data>
+  <data key="d13">['临江大道', '新中轴隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1264.6706992631503</data>
@@ -11981,7 +11981,7 @@
 <edge source="1953620324" target="1953651097" id="0">
   <data key="d10">[646373242, 547704950]</data>
   <data key="d11">tertiary</data>
-  <data key="d13">['江月路', '寺右一马路']</data>
+  <data key="d13">['寺右一马路', '江月路']</data>
   <data key="d14">False</data>
   <data key="d15">True</data>
   <data key="d16">541.6777666503544</data>
@@ -12794,7 +12794,7 @@
 <edge source="1989015154" target="4272738990" id="0">
   <data key="d10">[1408279456, 102591494, 928808170, 292571853, 1427697145, 1427697146, 1408279449, 1408279450, 1408279451, 1408279455]</data>
   <data key="d11">tertiary</data>
-  <data key="d12">['2', '3']</data>
+  <data key="d12">['3', '2']</data>
   <data key="d13">琶洲大道</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -13015,7 +13015,7 @@
 <edge source="2048647420" target="4400550034" id="0">
   <data key="d10">[440769410, 233810275, 233810277, 451042486]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['猎德大道', '天河东路']</data>
+  <data key="d13">['天河东路', '猎德大道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">701.6836600369688</data>
@@ -13765,7 +13765,7 @@
 <edge source="2098818798" target="4414895498" id="0">
   <data key="d10">[232602810, 444018067, 233932486]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['广州大道中', '广州大道珠江新城隧道']</data>
+  <data key="d13">['广州大道珠江新城隧道', '广州大道中']</data>
   <data key="d14">True</data>
   <data key="d23">G105;G324</data>
   <data key="d15">False</data>
@@ -14593,7 +14593,7 @@
   <data key="d11">trunk</data>
   <data key="d12">3</data>
   <data key="d18">60</data>
-  <data key="d13">['猎德大道', '江海大道']</data>
+  <data key="d13">['江海大道', '猎德大道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1026.9901766280275</data>
@@ -15018,7 +15018,7 @@
 <edge source="2550885346" target="4453046929" id="0">
   <data key="d10">[233932478, 646373239]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['广州大道中', '广州大桥']</data>
+  <data key="d13">['广州大桥', '广州大道中']</data>
   <data key="d14">True</data>
   <data key="d23">G105;G324</data>
   <data key="d15">False</data>
@@ -15043,7 +15043,7 @@
 <edge source="2550885346" target="4415176092" id="0">
   <data key="d10">[233932480, 444014978, 232602811]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['广州大道中', '广州大道珠江新城隧道']</data>
+  <data key="d13">['广州大道珠江新城隧道', '广州大道中']</data>
   <data key="d14">True</data>
   <data key="d23">G105;G324</data>
   <data key="d15">False</data>
@@ -15218,7 +15218,7 @@
   <data key="d10">[248407682, 248407684, 526242006]</data>
   <data key="d11">primary</data>
   <data key="d12">3</data>
-  <data key="d13">['CBD隧道', '花城大道']</data>
+  <data key="d13">['花城大道', 'CBD隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">626.1619420806131</data>
@@ -15273,7 +15273,7 @@
   <data key="d10">[248407677, 519199421, 248407685]</data>
   <data key="d11">primary</data>
   <data key="d12">3</data>
-  <data key="d13">['CBD隧道', '花城大道']</data>
+  <data key="d13">['花城大道', 'CBD隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">629.8519132596034</data>
@@ -15327,7 +15327,7 @@
 </edge>
 <edge source="2559433508" target="5160479731" id="0">
   <data key="d10">[249319408, 833429589]</data>
-  <data key="d11">['tertiary', 'trunk_link']</data>
+  <data key="d11">['trunk_link', 'tertiary']</data>
   <data key="d12">1</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -15866,7 +15866,7 @@
   <data key="d10">[348699314, 283560321, 283560322, 387281371]</data>
   <data key="d22">viaduct</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['4', '2']</data>
+  <data key="d12">['2', '4']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">372.94919257846516</data>
@@ -15900,7 +15900,7 @@
   <data key="d23">S4</data>
   <data key="d15">False</data>
   <data key="d16">1315.835674967113</data>
-  <data key="d18">['60', '80']</data>
+  <data key="d18">['80', '60']</data>
   <data key="d19">LINESTRING (113.3519733 23.1410334, 113.3518999 23.1409288, 113.3518086 23.1408028, 113.3517332 23.1406965, 113.3516479 23.1405837, 113.3515379 23.140443, 113.3514216 23.1403025, 113.351298 23.1401566, 113.3511744 23.1400143, 113.3509463 23.1397804, 113.3507746 23.1396145, 113.3506384 23.1394864, 113.3504985 23.1393638, 113.3503538 23.1392451, 113.3502148 23.1391369, 113.3500891 23.1390447, 113.3499142 23.1389224, 113.3497614 23.1388188, 113.3495706 23.1386922, 113.3494125 23.1385936, 113.349236 23.1384874, 113.3473104 23.1373482, 113.3471519 23.1372541, 113.3470305 23.1371758, 113.3469553 23.1371242, 113.3468854 23.1370747, 113.3468138 23.1370221, 113.3467442 23.1369703, 113.3466663 23.1369042, 113.3465984 23.1368479, 113.3465299 23.1367839, 113.346467 23.1367199, 113.3463948 23.1366401, 113.3463417 23.1365788, 113.3462928 23.1365145, 113.3462453 23.1364509, 113.3461937 23.1363769, 113.346149 23.1363098, 113.3460998 23.1362329, 113.3460517 23.1361545, 113.3460057 23.1360754, 113.345966 23.1359943, 113.3459233 23.1359099, 113.345886 23.135821, 113.3458557 23.1357331, 113.3458297 23.135642, 113.3458052 23.1355456, 113.3457836 23.1354423, 113.3457643 23.1353306, 113.3457517 23.1352253, 113.3457439 23.1351308, 113.3457408 23.1350325, 113.3457432 23.1349439, 113.3457448 23.1347171, 113.3457514 23.1344299, 113.345823 23.1338603, 113.3459101 23.133154, 113.3459941 23.1324804, 113.3460663 23.1317887)</data>
   <data key="d20">2874278502</data>
   <data key="d21">2722982191</data>
@@ -16067,7 +16067,7 @@
 <edge source="2874278502" target="3553428603" id="0">
   <data key="d10">[348649024, 348688275, 478202653, 283586398, 283586399]</data>
   <data key="d22">viaduct</data>
-  <data key="d11">['secondary', 'motorway_link']</data>
+  <data key="d11">['motorway_link', 'secondary']</data>
   <data key="d12">1</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -16267,7 +16267,7 @@
 <edge source="2894940483" target="4494523922" id="0">
   <data key="d10">[206102726, 206102725, 452703422]</data>
   <data key="d11">trunk</data>
-  <data key="d12">['4', '3']</data>
+  <data key="d12">['3', '4']</data>
   <data key="d18">60</data>
   <data key="d13">广园快速路</data>
   <data key="d14">True</data>
@@ -16329,7 +16329,7 @@
   <data key="d10">[356939301, 849765709]</data>
   <data key="d11">secondary</data>
   <data key="d12">2</data>
-  <data key="d13">['滨江东路', '艺洲路']</data>
+  <data key="d13">['艺洲路', '滨江东路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">337.767393382722</data>
@@ -18098,7 +18098,7 @@
 <edge source="4163036942" target="4424996163" id="0">
   <data key="d10">[445046636, 224952403, 832418837, 832418838, 40033626]</data>
   <data key="d11">primary</data>
-  <data key="d13">['东风东路', '黄埔大道西', '中山一立交']</data>
+  <data key="d13">['中山一立交', '黄埔大道西', '东风东路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">926.2007597314204</data>
@@ -19245,7 +19245,7 @@
 <edge source="4375777112" target="4375777159" id="0">
   <data key="d10">[319804288, 1156527049, 1156527050, 439900140, 443346645]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['天寿路', '天河东路', '天河北隧道']</data>
+  <data key="d13">['天河东路', '天寿路', '天河北隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">604.8992649741813</data>
@@ -19721,7 +19721,7 @@
 <edge source="4376827563" target="4386515636" id="0">
   <data key="d10">[194339723, 34323862]</data>
   <data key="d11">tertiary</data>
-  <data key="d13">['林和中路', '林乐路']</data>
+  <data key="d13">['林乐路', '林和中路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">303.21267372702977</data>
@@ -19930,7 +19930,7 @@
 <edge source="4377213157" target="4582591988" id="0">
   <data key="d10">[194339728, 251136557, 251136558, 440897783]</data>
   <data key="d11">primary</data>
-  <data key="d13">['林和中路', '林和中路隧道']</data>
+  <data key="d13">['林和中路隧道', '林和中路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">587.996403404548</data>
@@ -20953,7 +20953,7 @@
   <data key="d10">[120199336, 854556830, 118265799]</data>
   <data key="d11">secondary</data>
   <data key="d12">2</data>
-  <data key="d13">['先烈东路', '先烈中路']</data>
+  <data key="d13">['先烈中路', '先烈东路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">192.41905264510018</data>
@@ -23377,7 +23377,7 @@
 <edge source="4386691570" target="4883845054" id="0">
   <data key="d10">[509924488, 456703473, 949038355, 849765694]</data>
   <data key="d11">secondary</data>
-  <data key="d12">['2', '3']</data>
+  <data key="d12">['3', '2']</data>
   <data key="d13">艺洲路</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -23495,7 +23495,7 @@
 <edge source="4389823255" target="4453032214" id="0">
   <data key="d10">[441215233, 837413666, 837413671, 923956712, 448280092]</data>
   <data key="d11">secondary</data>
-  <data key="d13">['玉宇街', '烟雨路']</data>
+  <data key="d13">['烟雨路', '玉宇街']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1201.4230355703396</data>
@@ -23554,7 +23554,7 @@
 <edge source="4391852548" target="5109224871" id="0">
   <data key="d10">[539998328, 849376982]</data>
   <data key="d11">primary</data>
-  <data key="d12">['4', '3']</data>
+  <data key="d12">['3', '4']</data>
   <data key="d13">新港西路</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -24761,7 +24761,7 @@
 <edge source="4398476241" target="4581121043" id="0">
   <data key="d10">[442153166, 914308015, 442153168, 442152210, 442152211, 442151864, 996123640, 442151865, 443362430]</data>
   <data key="d11">secondary</data>
-  <data key="d13">['五山路', '岳洲路']</data>
+  <data key="d13">['岳洲路', '五山路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1006.769921516498</data>
@@ -24785,7 +24785,7 @@
 <edge source="4398476249" target="4560314189" id="0">
   <data key="d10">[194414657, 194414658, 442153167, 1006819792, 442153169, 460360339, 996123639, 80911895, 443346649, 194414655]</data>
   <data key="d11">secondary</data>
-  <data key="d13">['汇景北路', '五山路', '岳洲路']</data>
+  <data key="d13">['岳洲路', '五山路', '汇景北路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1037.9995353287063</data>
@@ -24884,7 +24884,7 @@
 <edge source="4399213368" target="4409528530" id="0">
   <data key="d10">[51424327, 1156527048, 439900139, 1156527051, 442232088]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['天寿路', '天河北隧道', '天河东路']</data>
+  <data key="d13">['天河东路', '天寿路', '天河北隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">599.6888972213069</data>
@@ -26321,7 +26321,7 @@
   <data key="d10">[443969225, 232967187]</data>
   <data key="d22">yes</data>
   <data key="d11">['primary', 'primary_link']</data>
-  <data key="d13">['中山一路', '中山一立交']</data>
+  <data key="d13">['中山一立交', '中山一路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">179.95665737838578</data>
@@ -26641,7 +26641,7 @@
 <edge source="4414895254" target="8693417284" id="0">
   <data key="d10">[232796360, 445014534]</data>
   <data key="d11">trunk_link</data>
-  <data key="d13">['广州大道中', '中山一立交']</data>
+  <data key="d13">['中山一立交', '广州大道中']</data>
   <data key="d14">True</data>
   <data key="d23">G105</data>
   <data key="d15">False</data>
@@ -26665,8 +26665,8 @@
 </edge>
 <edge source="4414895255" target="4418968002" id="0">
   <data key="d10">[904676304, 199898038]</data>
-  <data key="d11">['tertiary', 'primary']</data>
-  <data key="d13">['广州大道中', '华明路']</data>
+  <data key="d11">['primary', 'tertiary']</data>
+  <data key="d13">['华明路', '广州大道中']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">340.5570817993503</data>
@@ -28095,7 +28095,7 @@
   <data key="d10">[118601576, 1010839090, 1010839091, 266788275]</data>
   <data key="d22">viaduct</data>
   <data key="d11">motorway_link</data>
-  <data key="d12">['1', '2']</data>
+  <data key="d12">['2', '1']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">303.11813948153383</data>
@@ -29000,7 +29000,7 @@
 <edge source="4424996165" target="4511750829" id="0">
   <data key="d10">[443969221, 454632166]</data>
   <data key="d11">['primary', 'primary_link']</data>
-  <data key="d13">['中山一路', '中山一立交']</data>
+  <data key="d13">['中山一立交', '中山一路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">140.14019745800718</data>
@@ -29123,7 +29123,7 @@
 </edge>
 <edge source="4426650390" target="4426660923" id="0">
   <data key="d10">[445209017, 466643172, 444346470]</data>
-  <data key="d11">['secondary', 'trunk_link']</data>
+  <data key="d11">['trunk_link', 'secondary']</data>
   <data key="d13">大通路</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -29244,7 +29244,7 @@
   <data key="d15">False</data>
   <data key="d16">772.496098330711</data>
   <data key="d22">viaduct</data>
-  <data key="d12">['4', '3']</data>
+  <data key="d12">['3', '4']</data>
   <data key="d19">LINESTRING (113.3250509 23.1524214, 113.3254583 23.1522388, 113.3255867 23.1521861, 113.3257066 23.1521392, 113.3258168 23.1520988, 113.3260813 23.1520084, 113.3263411 23.1519237, 113.32661 23.1518427, 113.3269974 23.1517289, 113.3272875 23.1516427, 113.3277241 23.1515095, 113.3279681 23.1514324, 113.3282069 23.1513542, 113.3284243 23.1512803, 113.3286845 23.1511865, 113.3290305 23.1510573, 113.3292052 23.1509917, 113.3294249 23.1509125, 113.3296494 23.1508356, 113.3298748 23.1507616, 113.3301 23.1506909, 113.3302938 23.1506335, 113.3305996 23.1505474, 113.3309261 23.1504535, 113.3312943 23.1503371, 113.3316674 23.1502122, 113.3321427 23.1500401)</data>
   <data key="d20">4432796080</data>
   <data key="d21">4494379506</data>
@@ -30254,7 +30254,7 @@
 <edge source="4460408089" target="4460408093" id="0">
   <data key="d10">[102596674, 449070492, 80912591]</data>
   <data key="d11">secondary</data>
-  <data key="d13">['新中轴隧道', '临江大道']</data>
+  <data key="d13">['临江大道', '新中轴隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1239.7669573156227</data>
@@ -30335,7 +30335,7 @@
 <edge source="4464458953" target="4566736231" id="0">
   <data key="d10">[360056902, 1444828664, 1444828665, 449494422, 458714680, 458714681, 1444828666]</data>
   <data key="d11">['tertiary', 'tertiary_link']</data>
-  <data key="d13">['翰景路', '五山路']</data>
+  <data key="d13">['五山路', '翰景路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1756.3381766883929</data>
@@ -30469,7 +30469,7 @@
 <edge source="4464949545" target="4883844381" id="0">
   <data key="d10">[233932483, 923953844]</data>
   <data key="d11">trunk</data>
-  <data key="d13">['广州大桥新桥', '广州大道南']</data>
+  <data key="d13">['广州大道南', '广州大桥新桥']</data>
   <data key="d14">True</data>
   <data key="d23">G105;G324</data>
   <data key="d15">False</data>
@@ -30934,7 +30934,7 @@
 <edge source="4475331983" target="4566736230" id="0">
   <data key="d10">[606399970, 442150282, 461133116, 458714678]</data>
   <data key="d11">['tertiary', 'tertiary_link']</data>
-  <data key="d13">['翰景路', '五山路']</data>
+  <data key="d13">['五山路', '翰景路']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">1726.3608805520093</data>
@@ -31540,7 +31540,7 @@
 <edge source="4523527499" target="4529825621" id="0">
   <data key="d10">[456745768, 980093653]</data>
   <data key="d11">secondary</data>
-  <data key="d12">['2', '3']</data>
+  <data key="d12">['3', '2']</data>
   <data key="d13">赤岗北路</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -32007,9 +32007,9 @@
 <edge source="4560313687" target="4581130267" id="0">
   <data key="d10">[460360337, 1428906198, 1428906199]</data>
   <data key="d11">trunk</data>
-  <data key="d12">['4', '3']</data>
+  <data key="d12">['3', '4']</data>
   <data key="d18">60</data>
-  <data key="d13">['广园路五山隧道', '广园快速路']</data>
+  <data key="d13">['广园快速路', '广园路五山隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">492.73350192854963</data>
@@ -32397,7 +32397,7 @@
 <edge source="4713341825" target="4883646753" id="0">
   <data key="d10">[1410820197, 1488760887]</data>
   <data key="d11">secondary</data>
-  <data key="d12">['1', '2']</data>
+  <data key="d12">['2', '1']</data>
   <data key="d13">瑞康路</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
@@ -33502,7 +33502,7 @@
   <data key="d10">[739478021, 1156931312, 1156931315, 405495065, 405495067]</data>
   <data key="d11">tertiary</data>
   <data key="d12">3</data>
-  <data key="d13">['潭村隧道', '花城大道']</data>
+  <data key="d13">['花城大道', '潭村隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">797.5019140652869</data>
@@ -33556,7 +33556,7 @@
 <edge source="5072592946" target="5117881033" id="0">
   <data key="d10">[29165414, 520437324, 1156931313, 1156931314, 405495066]</data>
   <data key="d11">tertiary</data>
-  <data key="d13">['潭村隧道', '花城大道']</data>
+  <data key="d13">['花城大道', '潭村隧道']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">790.6059094630659</data>
@@ -35182,7 +35182,7 @@
   <data key="d10">[736413880, 736413878]</data>
   <data key="d22">yes</data>
   <data key="d11">tertiary</data>
-  <data key="d13">['黄埔涌桥', '会展南一路']</data>
+  <data key="d13">['会展南一路', '黄埔涌桥']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">144.12289116715505</data>
@@ -35194,7 +35194,7 @@
   <data key="d10">[1024168452, 736413879]</data>
   <data key="d11">tertiary</data>
   <data key="d12">2</data>
-  <data key="d13">['黄埔涌桥', '会展南一路']</data>
+  <data key="d13">['会展南一路', '黄埔涌桥']</data>
   <data key="d14">True</data>
   <data key="d15">False</data>
   <data key="d16">146.64754326013602</data>

@@ -1,0 +1,21 @@
+{
+    "episodes": [
+        1
+    ],
+    "rewards": [
+        -0.0181708339380585
+    ],
+    "epsilons": [
+        0.9
+    ],
+    "losses": [],
+    "avg_queue_lengths": [
+        0.0
+    ],
+    "grid_overloads": [
+        46
+    ],
+    "voltage_violations": [
+        46
+    ]
+}
